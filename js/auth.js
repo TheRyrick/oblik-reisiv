@@ -1,72 +1,29 @@
-/* Авторизація: екран входу, перевірка пароля, завантаження застосунку після входу */
+/* Авторизація через Supabase (пошта + пароль) і запуск застосунку після входу */
 (function () {
   'use strict';
 
-  const cfg = window.AUTH_CONFIG;
-  const SESSION_KEY = 'truck-ledger.auth.v1';
-  const ATTEMPTS_KEY = 'truck-ledger.auth.attempts';
+  const ENV = window.ENV || {};
   const APP_SCRIPTS = ['js/calc.js', 'js/app.js'];
+  // Ключі старої локальної версії — для одноразового перенесення в хмару
+  const LEGACY = {
+    trips: 'truck-ledger.trips.v1',
+    drivers: 'truck-ledger.drivers.v1',
+    cars: 'truck-ledger.cars.v1',
+    settings: 'truck-ledger.settings.v1',
+  };
+  const MIGRATED_KEY = 'truck-ledger.migrated-to-cloud';
 
-  // ---------- Криптографія ----------
-  async function derive(password, salt, iterations) {
-    const enc = new TextEncoder();
-    const key = await crypto.subtle.importKey('raw', enc.encode(password), 'PBKDF2', false, ['deriveBits']);
-    const bits = await crypto.subtle.deriveBits(
-      { name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode(salt), iterations },
-      key, 256
-    );
-    return Array.from(new Uint8Array(bits)).map((b) => b.toString(16).padStart(2, '0')).join('');
-  }
-  function safeEqual(a, b) {
-    if (a.length !== b.length) return false;
-    let r = 0;
-    for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i);
-    return r === 0;
-  }
-  // Токен сесії прив'язаний до поточного хешу: зміна пароля скидає всі входи
-  async function sessionToken() {
-    const data = new TextEncoder().encode(cfg.username + ':' + cfg.hash);
-    const d = await crypto.subtle.digest('SHA-256', data);
-    return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, '0')).join('');
-  }
+  let db = null;
 
-  // ---------- Сесія ----------
-  function readSession() {
-    for (const store of [sessionStorage, localStorage]) {
-      try {
-        const s = JSON.parse(store.getItem(SESSION_KEY) || 'null');
-        if (s && s.token && (!s.exp || s.exp > Date.now())) return s;
-        if (s) store.removeItem(SESSION_KEY);
-      } catch (e) { /* ignore */ }
-    }
-    return null;
+  // ---------- Допоміжне ----------
+  function fatal(html) {
+    document.getElementById('authScreen')?.remove();
+    const box = document.createElement('div');
+    box.id = 'authScreen';
+    box.className = 'fixed inset-0 z-[100] grid place-items-center bg-ink-950 px-4';
+    box.innerHTML = `<div class="w-full max-w-md rounded-2xl border border-rose-500/20 bg-ink-900 p-6 text-sm text-slate-300">${html}</div>`;
+    document.body.appendChild(box);
   }
-  async function writeSession(remember) {
-    const token = await sessionToken();
-    const store = remember ? localStorage : sessionStorage;
-    const exp = remember ? Date.now() + (cfg.rememberDays || 30) * 864e5 : 0;
-    store.setItem(SESSION_KEY, JSON.stringify({ token, exp }));
-  }
-  function clearSession() {
-    sessionStorage.removeItem(SESSION_KEY);
-    localStorage.removeItem(SESSION_KEY);
-  }
-
-  // ---------- Захист від підбору ----------
-  function getAttempts() {
-    try { return JSON.parse(localStorage.getItem(ATTEMPTS_KEY)) || { n: 0, until: 0 }; }
-    catch (e) { return { n: 0, until: 0 }; }
-  }
-  function failAttempt() {
-    const a = getAttempts();
-    a.n += 1;
-    if (a.n >= 5) a.until = Date.now() + Math.min(15 * 60, 30 * 2 ** (a.n - 5)) * 1000; // 30с, 60с, 2хв… до 15хв
-    localStorage.setItem(ATTEMPTS_KEY, JSON.stringify(a));
-    return a;
-  }
-  function resetAttempts() { localStorage.removeItem(ATTEMPTS_KEY); }
-
-  // ---------- Запуск застосунку ----------
   function loadScript(src) {
     return new Promise((resolve, reject) => {
       const s = document.createElement('script');
@@ -76,20 +33,104 @@
       document.body.appendChild(s);
     });
   }
-  async function startApp() {
+  function translateError(err) {
+    const m = (err && (err.message || err.error_description)) || String(err);
+    if (/invalid login credentials/i.test(m)) return 'Невірна пошта або пароль.';
+    if (/email not confirmed/i.test(m)) return 'Пошту не підтверджено. Перевірте лист від Supabase.';
+    if (/rate limit|too many/i.test(m)) return 'Забагато спроб. Спробуйте трохи пізніше.';
+    if (/failed to fetch|network/i.test(m)) return 'Немає зʼєднання з сервером. Перевірте інтернет.';
+    return m;
+  }
+
+  // ---------- Перенесення старих локальних даних ----------
+  function readLegacy() {
+    const out = {};
+    for (const [key, ls] of Object.entries(LEGACY)) {
+      try {
+        const raw = localStorage.getItem(ls);
+        if (raw) out[key] = JSON.parse(raw);
+      } catch (e) { /* ignore */ }
+    }
+    return out;
+  }
+  async function migrateLegacy() {
+    if (localStorage.getItem(MIGRATED_KEY)) return;
+    const local = readLegacy();
+    const n = Array.isArray(local.trips) ? local.trips.length : 0;
+    if (!n && !(local.drivers || []).length && !(local.cars || []).length) return;
+    const cloudTrips = Cloud.get('trips', []);
+    const msg = cloudTrips.length
+      ? `На цьому пристрої є старі локальні дані (рейсів: ${n}), а в хмарі вже є ${cloudTrips.length}.\n\nЗАМІНИТИ хмарні дані локальними? (Скасувати — залишити хмарні)`
+      : `На цьому пристрої знайдено локальні дані (рейсів: ${n}).\n\nПеренести їх у ваш хмарний акаунт?`;
+    if (confirm(msg)) {
+      for (const [key, value] of Object.entries(local)) Cloud.set(key, value);
+      await Cloud.flush();
+      if (Cloud.status() === 'error') throw new Error('Не вдалося завантажити локальні дані в хмару');
+    }
+    localStorage.setItem(MIGRATED_KEY, new Date().toISOString());
+  }
+
+  // ---------- Запуск застосунку ----------
+  async function startApp(user) {
+    const screen = document.getElementById('authScreen');
+    if (screen) screen.querySelector('#authSubmit span')?.replaceChildren('Завантаження даних…');
+    try {
+      await Cloud.init(db, user.id);
+      await migrateLegacy();
+    } catch (e) {
+      console.error(e);
+      fatal(`<p class="mb-3 font-semibold text-rose-300">Не вдалося завантажити дані з хмари</p>
+        <p class="mb-4 text-slate-400">${translateError(e).replace(/</g, '&lt;')}</p>
+        <div class="flex gap-2">
+          <button id="retryBtn" class="btn-primary">Спробувати ще раз</button>
+          <button id="reloginBtn" class="btn-ghost">Увійти заново</button>
+        </div>`);
+      document.getElementById('retryBtn').onclick = () => location.reload();
+      document.getElementById('reloginBtn').onclick = async () => { await db.auth.signOut().catch(() => {}); location.reload(); };
+      return;
+    }
+    localStorage.removeItem('truck-ledger.auth.v1');
+    localStorage.removeItem('truck-ledger.auth.attempts');
     document.getElementById('authScreen')?.remove();
     document.documentElement.classList.remove('auth-locked');
-    addLogoutButton();
+    setupHeader(user);
     for (const src of APP_SCRIPTS) await loadScript(src);
   }
-  function addLogoutButton() {
-    const btn = document.getElementById('logoutBtn');
-    if (!btn) return;
-    btn.addEventListener('click', () => { clearSession(); location.reload(); });
+
+  function setupHeader(user) {
+    const who = document.getElementById('userEmail');
+    if (who) who.textContent = user.email || '';
+    document.getElementById('logoutBtn')?.addEventListener('click', async () => {
+      await Cloud.flush();
+      if (Cloud.status() === 'error' && !confirm('Деякі зміни ще не збережено в хмару. Все одно вийти?')) return;
+      await db.auth.signOut();
+      location.reload();
+    });
+
+    const sync = document.getElementById('syncStatus');
+    if (sync) {
+      const view = {
+        saved: ['cloud', 'text-emerald-400', 'Усі зміни збережено в хмарі'],
+        saving: ['cloud-upload', 'text-sky-400 animate-pulse', 'Збереження…'],
+        error: ['cloud-off', 'text-rose-400', 'Немає звʼязку з хмарою — повторимо автоматично'],
+      };
+      const paint = (st) => {
+        const [icon, cls, title] = view[st];
+        sync.title = title;
+        sync.innerHTML = `<i data-lucide="${icon}" class="h-4 w-4 ${cls}"></i>`;
+        if (window.lucide) window.lucide.createIcons();
+      };
+      Cloud.on('status', paint);
+      paint(Cloud.status());
+    }
+
+    // Сесію завершено (напр. вихід на іншій вкладці) — повертаємось на екран входу
+    db.auth.onAuthStateChange((event) => { if (event === 'SIGNED_OUT') location.reload(); });
   }
 
   // ---------- Екран входу ----------
   function renderLogin() {
+    document.getElementById('authScreen')?.remove();
     const wrap = document.createElement('div');
     wrap.id = 'authScreen';
     wrap.className = 'fixed inset-0 z-[100] grid place-items-center bg-ink-950 px-4';
@@ -105,21 +146,18 @@
           </div>
           <div class="leading-tight">
             <div class="text-lg font-bold text-white">Облік рейсів</div>
-            <div class="text-xs text-slate-400">Вхід лише для власника</div>
+            <div class="text-xs text-slate-400">Дані зберігаються в хмарі</div>
           </div>
         </div>
-        <label class="mb-1 block text-xs font-medium text-slate-400" for="authUser">Логін</label>
-        <input id="authUser" name="username" type="text" class="input mb-4 w-full" autocomplete="username" autocapitalize="off" spellcheck="false" required />
+        <label class="mb-1 block text-xs font-medium text-slate-400" for="authEmail">Пошта</label>
+        <input id="authEmail" name="email" type="email" class="input mb-4 w-full" autocomplete="username" autocapitalize="off" spellcheck="false" required />
         <label class="mb-1 block text-xs font-medium text-slate-400" for="authPass">Пароль</label>
-        <div class="relative mb-4">
+        <div class="relative mb-5">
           <input id="authPass" name="password" type="password" class="input w-full pr-10" autocomplete="current-password" required />
           <button type="button" id="authToggle" class="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-slate-400 hover:text-white" aria-label="Показати пароль">
             <i data-lucide="eye" class="h-4 w-4"></i>
           </button>
         </div>
-        <label class="mb-5 flex cursor-pointer items-center gap-2 text-sm text-slate-300">
-          <input id="authRemember" type="checkbox" class="h-4 w-4 accent-indigo-500" /> Запам'ятати мене на ${cfg.rememberDays || 30} днів
-        </label>
         <p id="authError" class="mb-4 hidden rounded-lg bg-rose-500/10 px-3 py-2 text-sm text-rose-300"></p>
         <button id="authSubmit" type="submit" class="btn-primary w-full justify-center">
           <i data-lucide="log-in" class="h-4 w-4"></i><span>Увійти</span>
@@ -132,59 +170,53 @@
     const err = wrap.querySelector('#authError');
     const submit = wrap.querySelector('#authSubmit');
     const pass = wrap.querySelector('#authPass');
+    const label = (t) => { const s = submit.querySelector('span'); if (s) s.textContent = t; };
     const showError = (msg) => { err.textContent = msg; err.classList.remove('hidden'); };
 
     wrap.querySelector('#authToggle').addEventListener('click', () => {
       pass.type = pass.type === 'password' ? 'text' : 'password';
     });
-    wrap.querySelector('#authUser').focus();
+    wrap.querySelector('#authEmail').focus();
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       err.classList.add('hidden');
-      const a = getAttempts();
-      if (a.until > Date.now()) {
-        return showError(`Забагато спроб. Спробуйте через ${Math.ceil((a.until - Date.now()) / 1000)} с.`);
-      }
-      const user = form.username.value.trim();
-      const pwd = form.password.value;
-      if (!user || !pwd) return showError('Введіть логін і пароль.');
+      const email = form.email.value.trim();
+      const password = form.password.value;
+      if (!email || !password) return showError('Введіть пошту і пароль.');
 
       submit.disabled = true;
-      submit.querySelector('span').textContent = 'Перевірка…';
+      label('Вхід…');
       try {
-        const h = await derive(pwd, cfg.salt, cfg.iterations);
-        const okUser = safeEqual(user, cfg.username);
-        const ok = safeEqual(h, cfg.hash) && okUser;
-        if (ok) {
-          resetAttempts();
-          await writeSession(wrap.querySelector('#authRemember').checked);
-          await startApp();
-          return;
-        }
-        const f = failAttempt();
-        pass.value = '';
-        showError(f.until > Date.now() ? 'Невірний логін або пароль. Вхід тимчасово заблоковано.' : 'Невірний логін або пароль.');
+        const { data, error } = await db.auth.signInWithPassword({ email, password });
+        if (error) throw error;
+        await startApp(data.user);
       } catch (ex) {
-        showError('Помилка: ' + ex.message);
-      } finally {
+        pass.value = '';
+        showError(translateError(ex));
         submit.disabled = false;
-        const span = submit.querySelector('span');
-        if (span) span.textContent = 'Увійти';
+        label('Увійти');
       }
     });
   }
 
   // ---------- Старт ----------
   async function init() {
-    if (!cfg || !window.crypto || !crypto.subtle) {
-      document.body.innerHTML = '<p style="padding:2rem;color:#fca5a5;font-family:sans-serif">Авторизація недоступна: відкрийте сайт через HTTPS або localhost.</p>';
-      document.documentElement.classList.remove('auth-locked');
-      return;
+    if (!ENV.SUPABASE_URL || !ENV.SUPABASE_ANON_KEY || /YOUR-/.test(ENV.SUPABASE_URL)) {
+      return fatal(`<p class="mb-2 font-semibold text-rose-300">Хмарну базу не налаштовано</p>
+        <p class="text-slate-400">Не задано <code>SUPABASE_URL</code> / <code>SUPABASE_ANON_KEY</code>.
+        Для деплою додайте їх у змінні оточення Netlify/Vercel, для локального запуску —
+        скопіюйте <code>js/env.example.js</code> у <code>js/env.js</code>. Див. README.</p>`);
     }
-    const s = readSession();
-    if (s && safeEqual(s.token, await sessionToken())) return startApp();
-    clearSession();
+    if (!window.supabase || !window.Cloud) {
+      return fatal('<p class="text-rose-300">Не вдалося завантажити бібліотеку Supabase. Перевірте інтернет і оновіть сторінку.</p>');
+    }
+    db = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY, {
+      auth: { persistSession: true, autoRefreshToken: true, storageKey: 'truck-ledger.supabase.auth' },
+    });
+    fatal('<p class="text-center text-slate-400">Завантаження…</p>');
+    const { data } = await db.auth.getSession();
+    if (data.session) return startApp(data.session.user);
     renderLogin();
   }
 

@@ -23,9 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Prepare site
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ vars.SUPABASE_ANON_KEY }}
         run: |
+          sh tools/build-env.sh
           mkdir _site
-          cp -r index.html robots.txt .nojekyll css js tools _site/
+          cp -r index.html robots.txt .nojekyll css js _site/
       - uses: actions/configure-pages@v5
         with:
           enablement: true

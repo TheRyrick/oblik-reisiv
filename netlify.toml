@@ -1,6 +1,7 @@
 [build]
   publish = "."
-  command = ""
+  # Генерує js/env.js зі змінних оточення SUPABASE_URL і SUPABASE_ANON_KEY
+  command = "sh tools/build-env.sh"
 
 [[headers]]
   for = "/*"
@@ -9,3 +10,8 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     X-Robots-Tag = "noindex, nofollow"
+
+[[headers]]
+  for = "/js/env.js"
+  [headers.values]
+    Cache-Control = "no-cache"

@@ -19,3 +19,7 @@ desktop.ini
 node_modules/
 .env
 .env.*
+!.env.example
+
+# Ключі Supabase генеруються під час деплою (tools/build-env.sh)
+js/env.js

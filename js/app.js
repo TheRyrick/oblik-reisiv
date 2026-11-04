@@ -4,19 +4,19 @@
 
   const { calcTrip, summarize, DEFAULTS, num } = window.Calc;
 
-  const TRIPS_KEY = 'truck-ledger.trips.v1';
-  const SETTINGS_KEY = 'truck-ledger.settings.v1';
+  const Cloud = window.Cloud;
   const MONTHS = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
   const MONTHS_SHORT = ['Січ', 'Лют', 'Бер', 'Кві', 'Тра', 'Чер', 'Лип', 'Сер', 'Вер', 'Жов', 'Лис', 'Гру'];
 
-  // ---------- Стан ----------
-  const DRIVERS_KEY = 'truck-ledger.drivers.v1';
-  const CARS_KEY = 'truck-ledger.cars.v1';
-
-  let trips = loadJSON(TRIPS_KEY, []);
-  let drivers = loadJSON(DRIVERS_KEY, []);
-  let cars = loadJSON(CARS_KEY, []);
-  let settings = Object.assign({}, DEFAULTS, loadJSON(SETTINGS_KEY, {}));
+  // ---------- Стан (дані з хмари, див. js/cloud.js) ----------
+  let trips, drivers, cars, settings;
+  function loadState() {
+    trips = Cloud.get('trips', []);
+    drivers = Cloud.get('drivers', []);
+    cars = Cloud.get('cars', []);
+    settings = Object.assign({}, DEFAULTS, Cloud.get('settings', {}));
+  }
+  loadState();
   let filter = { year: 'all', month: 'all', driver: 'all', car: 'all' };
   let query = '';
   let editingId = null;
@@ -27,19 +27,11 @@
   const $ = (sel, root = document) => root.querySelector(sel);
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
-  function loadJSON(key, fallback) {
-    try {
-      const raw = localStorage.getItem(key);
-      return raw ? JSON.parse(raw) : fallback;
-    } catch (e) {
-      return fallback;
-    }
-  }
-  function saveTrips() { localStorage.setItem(TRIPS_KEY, JSON.stringify(trips)); }
-  function saveSettings() { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); }
+  function saveTrips() { Cloud.set('trips', trips); }
+  function saveSettings() { Cloud.set('settings', settings); }
   function saveRefs() {
-    localStorage.setItem(DRIVERS_KEY, JSON.stringify(drivers));
-    localStorage.setItem(CARS_KEY, JSON.stringify(cars));
+    Cloud.set('drivers', drivers);
+    Cloud.set('cars', cars);
   }
 
   // ---------- Водії та авто ----------
@@ -743,8 +735,8 @@
     d.driverName = drv ? driverLabel(drv) : d.driverId && d.driverId === src.driverId ? src.driverName || '' : '';
     d.carName = car ? carLabel(car) : d.carId && d.carId === src.carId ? src.carName || '' : '';
 
-    if (editingId) {
-      const i = trips.findIndex((t) => t.id === editingId);
+    const i = editingId ? trips.findIndex((t) => t.id === editingId) : -1;
+    if (i >= 0) {
       trips[i] = Object.assign({}, trips[i], d, { updatedAt: Date.now() });
       toast('Рейс оновлено');
     } else {
@@ -1050,6 +1042,16 @@
   $('#driverFilter').addEventListener('change', (e) => { filter.driver = e.target.value; renderAll(); });
   $('#carFilter').addEventListener('change', (e) => { filter.car = e.target.value; renderAll(); });
   $('#search').addEventListener('input', (e) => { query = e.target.value; renderAll(); });
+
+  // ---------- Синхронізація з хмарою ----------
+  Cloud.on('error', () => toast('Не вдалося зберегти в хмару. Повторимо автоматично…', 'err'));
+  // Дані змінено на іншому пристрої — оновлюємо стан і екран
+  // (відкрита форма рейсу не скидається: її значення лишаються в полях)
+  Cloud.on('remote', () => {
+    loadState();
+    renderAll();
+    toast('Дані оновлено з хмари', 'info');
+  });
 
   applyView();
   renderAll();
