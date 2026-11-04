@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="uk" class="dark auth-locked">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex, nofollow" />
+  <meta name="theme-color" content="#0b1020" />
+  <title>Облік рейсів — вантажні перевезення</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9A%9A%3C/text%3E%3C/svg%3E" />
+
+  <!-- Шрифти -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          colors: {
+            ink: { 950: '#070b16', 900: '#0b1020', 800: '#111830', 700: '#1a2340', 600: '#26304f' },
+          },
+        },
+      },
+    };
+  </script>
+
+  <!-- Іконки та графіки -->
+  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+
+  <link rel="stylesheet" href="css/styles.css" />
+  <style>html.auth-locked body > *:not(#authScreen) { display: none !important; }</style>
+</head>
+<body class="bg-ink-950 text-slate-200 font-sans antialiased min-h-screen">
+  <!-- Декоративний фон -->
+  <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+    <div class="absolute -top-40 -left-40 h-[28rem] w-[28rem] rounded-full bg-indigo-600/20 blur-3xl"></div>
+    <div class="absolute top-1/3 -right-40 h-[26rem] w-[26rem] rounded-full bg-emerald-500/10 blur-3xl"></div>
+  </div>
+
+  <!-- Шапка -->
+  <header class="sticky top-0 z-30 border-b border-white/5 bg-ink-950/70 backdrop-blur-xl">
+    <div class="app-container mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6">
+      <a href="#" class="flex items-center gap-3">
+        <div class="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-indigo-500 to-emerald-500 shadow-lg shadow-indigo-500/30">
+          <i data-lucide="truck" class="h-5 w-5 text-white"></i>
+        </div>
+        <div class="hidden leading-tight xl:block">
+          <div class="text-base font-bold text-white sm:text-lg">Облік рейсів</div>
+          <div class="text-xs text-slate-400">Вантажні перевезення · фінанси</div>
+        </div>
+      </a>
+
+      <!-- Вкладки -->
+      <nav class="tabs ml-1 sm:ml-3">
+        <a href="#" class="tab" data-tab="dashboard"><i data-lucide="layout-dashboard" class="h-4 w-4"></i><span>Панель</span></a>
+        <a href="#trips" class="tab" data-tab="trips"><i data-lucide="list" class="h-4 w-4"></i><span>Рейси</span></a>
+      </nav>
+
+      <div class="ml-auto flex items-center gap-2">
+        <div class="relative" id="menuWrap">
+          <button id="menuBtn" class="btn-ghost" title="Дані">
+            <i data-lucide="database" class="h-4 w-4"></i><span class="hidden md:inline">Дані</span>
+          </button>
+          <div id="menu" class="dropdown hidden">
+            <button data-action="export-csv" class="dropdown-item"><i data-lucide="file-spreadsheet" class="h-4 w-4"></i>Експорт у Excel (CSV)</button>
+            <button data-action="export-json" class="dropdown-item"><i data-lucide="download" class="h-4 w-4"></i>Резервна копія (JSON)</button>
+            <button data-action="import-json" class="dropdown-item"><i data-lucide="upload" class="h-4 w-4"></i>Відновити з копії</button>
+            <div class="my-1 h-px bg-white/5"></div>
+            <button data-action="demo" class="dropdown-item"><i data-lucide="sparkles" class="h-4 w-4"></i>Додати демо-рейси</button>
+            <button data-action="clear" class="dropdown-item text-rose-300 hover:!bg-rose-500/10"><i data-lucide="trash-2" class="h-4 w-4"></i>Видалити всі дані</button>
+            <div class="my-1 h-px bg-white/5"></div>
+            <button id="logoutBtn" type="button" class="dropdown-item"><i data-lucide="log-out" class="h-4 w-4"></i>Вийти</button>
+          </div>
+        </div>
+        <button id="refsBtn" class="btn-ghost" title="Водії та авто">
+          <i data-lucide="users" class="h-4 w-4"></i><span class="hidden md:inline">Водії та авто</span>
+        </button>
+        <button id="settingsBtn" class="btn-ghost" title="Налаштування ставок">
+          <i data-lucide="settings-2" class="h-4 w-4"></i><span class="hidden md:inline">Ставки</span>
+        </button>
+        <button id="addTripBtn" class="btn-primary">
+          <i data-lucide="plus" class="h-4 w-4"></i><span>Новий рейс</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main class="app-container mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
+    <!-- Заголовок + фільтр періоду -->
+    <section class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+      <div>
+        <h1 id="viewTitle" class="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">Фінансова панель</h1>
+        <p class="mt-1 text-sm text-slate-400" id="periodLabel">Усі рейси</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <div class="select-wrap">
+          <i data-lucide="calendar" class="h-4 w-4 text-slate-400"></i>
+          <select id="yearFilter" class="select"></select>
+        </div>
+        <div class="select-wrap">
+          <i data-lucide="calendar-days" class="h-4 w-4 text-slate-400"></i>
+          <select id="monthFilter" class="select"></select>
+        </div>
+        <div class="select-wrap">
+          <i data-lucide="user-round" class="h-4 w-4 text-slate-400"></i>
+          <select id="driverFilter" class="select"></select>
+        </div>
+        <div class="select-wrap">
+          <i data-lucide="truck" class="h-4 w-4 text-slate-400"></i>
+          <select id="carFilter" class="select"></select>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Вкладка: Панель ===== -->
+    <div id="dashboardView" class="space-y-6">
+    <!-- KPI: головні показники -->
+    <section>
+      <div class="section-label">Головне</div>
+      <div id="kpiMain" class="grid gap-3 sm:gap-4 md:grid-cols-3"></div>
+    </section>
+    <!-- KPI: інші показники -->
+    <section>
+      <div class="section-label">Деталі за період</div>
+      <div id="kpis" class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4"></div>
+    </section>
+
+    <!-- Графік + структура -->
+    <section class="grid gap-4 lg:grid-cols-3">
+      <div class="card lg:col-span-2">
+        <div class="mb-4 flex items-center justify-between">
+          <div>
+            <h2 class="card-title">Динаміка по місяцях</h2>
+            <p class="text-xs text-slate-400">Фрахт, витрати, чистий прибуток бізнесу та ваш</p>
+          </div>
+          <i data-lucide="bar-chart-3" class="h-5 w-5 text-slate-500"></i>
+        </div>
+        <div class="relative h-72">
+          <canvas id="monthlyChart"></canvas>
+          <div id="chartEmpty" class="absolute inset-0 hidden place-items-center text-sm text-slate-500">Немає даних для графіка</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="mb-4 flex items-center justify-between">
+          <div>
+            <h2 class="card-title">Куди йдуть гроші</h2>
+            <p class="text-xs text-slate-400">Структура від суми фрахту</p>
+          </div>
+          <i data-lucide="pie-chart" class="h-5 w-5 text-slate-500"></i>
+        </div>
+        <div id="structure" class="space-y-3.5"></div>
+        <div class="mt-5 border-t border-white/5 pt-4">
+          <div class="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Оплата фрахту</div>
+          <div id="payments" class="space-y-2"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Останні рейси (короткий список) -->
+    <section class="card !p-0 overflow-hidden">
+      <div class="flex items-center justify-between border-b border-white/5 p-4 sm:p-5">
+        <div>
+          <h2 class="card-title">Останні рейси</h2>
+          <p class="text-xs text-slate-400">Натисніть на рейс, щоб переглянути деталі</p>
+        </div>
+        <a href="#trips" class="btn-ghost"><span>Усі рейси</span><i data-lucide="arrow-right" class="h-4 w-4"></i></a>
+      </div>
+      <div id="recentTrips" class="divide-y divide-white/5"></div>
+    </section>
+    </div>
+
+    <!-- ===== Вкладка: Рейси ===== -->
+    <section id="tripsView" class="card !p-0 hidden overflow-hidden">
+      <div class="flex flex-col gap-3 border-b border-white/5 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+        <div>
+          <h2 class="card-title">Рейси</h2>
+          <p class="text-xs text-slate-400" id="tripsCount">0 рейсів</p>
+        </div>
+        <div class="relative w-full sm:w-72">
+          <i data-lucide="search" class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"></i>
+          <input id="search" type="search" placeholder="Пошук: маршрут, водій, авто, нотатка…" class="input !pl-9" />
+        </div>
+      </div>
+
+      <!-- Таблиця (десктоп) -->
+      <div class="hidden overflow-x-auto xl:block">
+        <table class="w-full text-sm">
+          <thead class="bg-white/[0.02] text-left text-xs uppercase tracking-wider text-slate-400">
+            <tr>
+              <th class="th">Авто / дати / маршрут</th>
+              <th class="th text-right">Діб</th>
+              <th class="th text-right">Км</th>
+              <th class="th text-right">Паливо</th>
+              <th class="th text-right">Фрахт</th>
+              <th class="th text-right">Грн/км</th>
+              <th class="th text-right">Податок</th>
+              <th class="th text-right">Добові</th>
+              <th class="th text-right">СТО</th>
+              <th class="th text-right">Ремонт</th>
+              <th class="th text-right">ЗП водія</th>
+              <th class="th text-right">ЗП логіста</th>
+              <th class="th text-right">Чистий</th>
+              <th class="th text-right">Компаньйон</th>
+              <th class="th text-right">Ваш</th>
+              <th class="th"></th>
+            </tr>
+          </thead>
+          <tbody id="tripsTable" class="divide-y divide-white/5"></tbody>
+          <tfoot id="tripsTotal" class="border-t border-white/10 bg-white/[0.02] font-semibold text-white"></tfoot>
+        </table>
+      </div>
+
+      <!-- Картки (мобільні) -->
+      <div id="tripsCards" class="grid gap-3 p-4 md:grid-cols-2 xl:hidden"></div>
+
+      <div id="emptyState" class="hidden flex-col items-center justify-center px-6 py-16 text-center">
+        <div class="mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-indigo-500/10 text-indigo-300">
+          <i data-lucide="route" class="h-8 w-8"></i>
+        </div>
+        <h3 class="text-lg font-semibold text-white">Ще немає рейсів</h3>
+        <p class="mt-1 max-w-sm text-sm text-slate-400">Додайте перший рейс — усі показники (км, паливо, податок, добові, ЗП водія, прибуток) порахуються автоматично.</p>
+        <div class="mt-5 flex flex-wrap justify-center gap-2">
+          <button class="btn-primary" data-action="add"><i data-lucide="plus" class="h-4 w-4"></i>Додати рейс</button>
+          <button class="btn-ghost" data-action="demo"><i data-lucide="sparkles" class="h-4 w-4"></i>Демо-дані</button>
+        </div>
+      </div>
+    </section>
+
+    <footer class="pb-6 text-center text-xs text-slate-500">
+      Дані зберігаються локально у вашому браузері. Регулярно робіть резервну копію через меню «Дані».
+    </footer>
+  </main>
+
+  <!-- ============ Модалка: рейс ============ -->
+  <div id="tripModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="tripModalTitle">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-panel max-w-5xl">
+      <form id="tripForm" novalidate class="flex max-h-[100dvh] flex-col sm:max-h-[92vh]">
+        <div class="flex items-center justify-between border-b border-white/5 px-5 py-4">
+          <div class="flex items-center gap-3">
+            <div class="grid h-9 w-9 place-items-center rounded-lg bg-indigo-500/15 text-indigo-300"><i data-lucide="file-plus-2" class="h-5 w-5"></i></div>
+            <h3 id="tripModalTitle" class="text-lg font-bold text-white">Новий рейс</h3>
+          </div>
+          <button type="button" class="icon-btn" data-close aria-label="Закрити"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+
+        <div class="grid flex-1 gap-0 overflow-y-auto lg:grid-cols-[1fr_340px]">
+          <!-- Поля -->
+          <div class="space-y-6 p-5">
+            <fieldset class="fs">
+              <legend class="legend"><i data-lucide="users" class="h-4 w-4"></i>Водій та авто</legend>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="field"><span>Водій</span><select name="driverId" class="input"></select></label>
+                <label class="field"><span>Авто</span><select name="carId" class="input"></select></label>
+              </div>
+              <p id="refsHint" class="mt-2 hidden text-xs text-slate-500">Список порожній — додайте водіїв та авто кнопкою <button type="button" class="text-indigo-300 underline" data-action="refs">«Водії та авто»</button>.</p>
+            </fieldset>
+
+            <fieldset class="fs">
+              <legend class="legend"><i data-lucide="calendar-range" class="h-4 w-4"></i>Дати та маршрут</legend>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="field"><span>Дата початку рейсу *</span><input name="startDate" type="date" class="input" required /></label>
+                <label class="field"><span>Дата кінця рейсу *</span><input name="endDate" type="date" class="input" required /></label>
+                <label class="field sm:col-span-2"><span>Маршрут</span><input name="route" type="text" class="input" placeholder="Напр.: Київ → Львів → Київ" maxlength="120" /></label>
+              </div>
+            </fieldset>
+
+            <fieldset class="fs">
+              <legend class="legend"><i data-lucide="gauge" class="h-4 w-4"></i>Одометр</legend>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="field"><span>Початковий одометр, км *</span><input name="odoStart" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" required /></label>
+                <label class="field"><span>Кінцевий одометр, км *</span><input name="odoEnd" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" required /></label>
+              </div>
+            </fieldset>
+
+            <fieldset class="fs">
+              <legend class="legend"><i data-lucide="fuel" class="h-4 w-4"></i>Паливо</legend>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="field"><span>Витрата палива за рейс, л</span><input name="fuelLiters" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" /></label>
+                <label class="field"><span>Ціна палива для водія, грн/л</span><input name="fuelPrice" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0.00" /></label>
+                <label class="field sm:col-span-2"><span>Фактична ціна палива, грн/л <em class="not-italic text-slate-500">(зі знижкою; порожньо = як для водія)</em></span><input name="fuelPriceActual" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0.00" /></label>
+              </div>
+              <p class="mt-2 text-xs text-slate-500">ЗП водія рахується за ціною для водія. Прибуток бізнесу — за фактичною ціною.</p>
+            </fieldset>
+
+            <fieldset class="fs">
+              <legend class="legend"><i data-lucide="wallet" class="h-4 w-4"></i>Сума фрахту</legend>
+              <div class="grid gap-3 sm:grid-cols-3">
+                <label class="field"><span><i data-lucide="banknote" class="inline h-3.5 w-3.5 text-emerald-400"></i> Готівка, грн</span><input name="cash" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" /></label>
+                <label class="field"><span><i data-lucide="landmark" class="inline h-3.5 w-3.5 text-sky-400"></i> Безнал, грн</span><input name="bank" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" /></label>
+                <label class="field"><span><i data-lucide="credit-card" class="inline h-3.5 w-3.5 text-violet-400"></i> Карта, грн</span><input name="card" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" /></label>
+              </div>
+            </fieldset>
+
+            <fieldset class="fs">
+              <legend class="legend"><i data-lucide="receipt" class="h-4 w-4"></i>Інше</legend>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="field"><span><i data-lucide="wrench" class="inline h-3.5 w-3.5 text-cyan-400"></i> Витрати на ремонт, грн</span><input name="repairExpenses" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" /></label>
+                <label class="field"><span>Інші витрати, грн <em class="not-italic text-slate-500">(дороги, стоянки)</em></span><input name="otherExpenses" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" /></label>
+                <label class="field sm:col-span-2"><span>Нотатка</span><input name="note" type="text" class="input" placeholder="Клієнт, вантаж…" maxlength="200" /></label>
+              </div>
+              <details class="mt-3 rounded-xl border border-white/5 bg-white/[0.02] p-3">
+                <summary class="cursor-pointer select-none text-xs font-medium text-slate-400">Ставки для цього рейсу</summary>
+                <div class="mt-3 grid gap-3 sm:grid-cols-2">
+                  <label class="field"><span>Добові, грн/доба</span><input name="perDiem" type="number" step="any" min="0" class="input" /></label>
+                  <label class="field"><span>СТО, грн/доба</span><input name="stoRate" type="number" step="any" min="0" class="input" /></label>
+                  <label class="field"><span>Податок, % від безналу</span><input name="taxRate" type="number" step="any" min="0" max="100" class="input" /></label>
+                  <label class="field"><span>ЗП водія, % від прибутку</span><input name="driverRate" type="number" step="any" min="0" max="100" class="input" /></label>
+                  <label class="field"><span>Компаньйон, % від чистого</span><input name="partnerRate" type="number" step="any" min="0" max="100" class="input" /></label>
+                  <label class="field"><span>ЗП логіста, % від фрахту</span><input name="logistRate" type="number" step="any" min="0" max="100" class="input" /></label>
+                </div>
+              </details>
+            </fieldset>
+            <p id="formError" class="hidden rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200"></p>
+          </div>
+
+          <!-- Живий розрахунок -->
+          <aside class="border-t border-white/5 bg-white/[0.02] p-5 lg:border-l lg:border-t-0">
+            <div class="lg:sticky lg:top-0">
+              <div class="mb-3 flex items-center gap-2 text-sm font-semibold text-white"><i data-lucide="calculator" class="h-4 w-4 text-indigo-300"></i>Автоматичний розрахунок</div>
+              <dl id="preview" class="space-y-1.5 text-sm"></dl>
+            </div>
+          </aside>
+        </div>
+
+        <div class="flex flex-col-reverse gap-2 border-t border-white/5 px-5 py-4 sm:flex-row sm:justify-end">
+          <button type="button" class="btn-ghost justify-center" data-close>Скасувати</button>
+          <button type="submit" class="btn-primary justify-center"><i data-lucide="check" class="h-4 w-4"></i>Зберегти рейс</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============ Модалка: перегляд рейсу ============ -->
+  <div id="viewModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="viewTitleTrip">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-panel max-w-5xl">
+      <div class="flex max-h-[100dvh] flex-col sm:max-h-[92vh]">
+        <div class="flex items-start justify-between gap-3 border-b border-white/5 px-5 py-4">
+          <div class="flex min-w-0 items-start gap-3">
+            <div class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-indigo-500/15 text-indigo-300"><i data-lucide="route" class="h-5 w-5"></i></div>
+            <div class="min-w-0">
+              <h3 id="viewTitleTrip" class="text-lg font-bold text-white"></h3>
+              <div id="viewSubtitle" class="text-sm text-slate-400"></div>
+            </div>
+          </div>
+          <button type="button" class="icon-btn" data-close aria-label="Закрити"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <div id="viewBody" class="flex-1 overflow-y-auto p-5"></div>
+        <div class="flex flex-col-reverse gap-2 border-t border-white/5 px-5 py-4 sm:flex-row sm:justify-between">
+          <button type="button" id="viewDelete" class="btn-ghost justify-center text-rose-300 hover:!bg-rose-500/10"><i data-lucide="trash-2" class="h-4 w-4"></i>Видалити</button>
+          <div class="flex flex-col-reverse gap-2 sm:flex-row">
+            <button type="button" id="viewCopy" class="btn-ghost justify-center"><i data-lucide="copy" class="h-4 w-4"></i>Дублювати</button>
+            <button type="button" id="viewEdit" class="btn-primary justify-center"><i data-lucide="pencil" class="h-4 w-4"></i>Редагувати</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ Модалка: ставки ============ -->
+  <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-panel max-w-md">
+      <form id="settingsForm" class="max-h-[100dvh] overflow-y-auto p-5 sm:max-h-[92vh]">
+        <div class="mb-4 flex items-center justify-between">
+          <h3 class="text-lg font-bold text-white">Ставки за замовчуванням</h3>
+          <button type="button" class="icon-btn" data-close aria-label="Закрити"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <p class="mb-4 text-sm text-slate-400">Застосовуються до нових рейсів. Уже збережені рейси зберігають свої ставки.</p>
+        <div class="space-y-3">
+          <label class="field"><span>Добові водія, грн за добу</span><input name="perDiem" type="number" step="any" min="0" class="input" /></label>
+          <label class="field"><span>СТО, грн за добу</span><input name="stoRate" type="number" step="any" min="0" class="input" /></label>
+          <label class="field"><span>Податок, % від суми безготівки</span><input name="taxRate" type="number" step="any" min="0" max="100" class="input" /></label>
+          <label class="field"><span>ЗП водія, % від прибутку авто (без СТО і податку)</span><input name="driverRate" type="number" step="any" min="0" max="100" class="input" /></label>
+          <label class="field"><span>Компаньйон, % від чистого прибутку бізнесу</span><input name="partnerRate" type="number" step="any" min="0" max="100" class="input" /></label>
+          <label class="field"><span>ЗП логіста, % від суми фрахту</span><input name="logistRate" type="number" step="any" min="0" max="100" class="input" /></label>
+          <div class="preview-sep !my-4"></div>
+          <label class="field"><span>Щомісячні витрати, грн за місяць</span><input name="monthlyExpenses" type="number" step="any" min="0" class="input" placeholder="0" /></label>
+          <p class="text-xs text-slate-500">Віднімаються від чистого прибутку бізнесу та вашого прибутку за кожен місяць, у якому є рейси. На частку компаньйона не впливають. Діють одразу на всі місяці.</p>
+        </div>
+        <div class="mt-6 flex justify-end gap-2">
+          <button type="button" class="btn-ghost" data-close>Скасувати</button>
+          <button type="submit" class="btn-primary"><i data-lucide="save" class="h-4 w-4"></i>Зберегти</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ============ Модалка: водії та авто ============ -->
+  <div id="refsModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-panel max-w-3xl">
+      <div class="flex max-h-[100dvh] flex-col sm:max-h-[92vh]">
+        <div class="flex items-center justify-between border-b border-white/5 px-5 py-4">
+          <div class="flex items-center gap-3">
+            <div class="grid h-9 w-9 place-items-center rounded-lg bg-indigo-500/15 text-indigo-300"><i data-lucide="users" class="h-5 w-5"></i></div>
+            <h3 class="text-lg font-bold text-white">Водії та авто</h3>
+          </div>
+          <button type="button" class="icon-btn" data-close aria-label="Закрити"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <div class="grid flex-1 gap-6 overflow-y-auto p-5 md:grid-cols-2">
+          <section>
+            <h4 class="mb-3 flex items-center gap-2 text-sm font-semibold text-white"><i data-lucide="user-round" class="h-4 w-4 text-amber-300"></i>Водії</h4>
+            <form id="driverForm" class="grid gap-2" novalidate>
+              <input name="lastName" type="text" class="input" placeholder="Прізвище" maxlength="60" />
+              <input name="firstName" type="text" class="input" placeholder="Ім'я" maxlength="60" />
+              <button type="submit" class="btn-primary justify-center"><i data-lucide="user-plus" class="h-4 w-4"></i>Додати водія</button>
+            </form>
+            <ul id="driversList" class="mt-4 space-y-2"></ul>
+          </section>
+          <section>
+            <h4 class="mb-3 flex items-center gap-2 text-sm font-semibold text-white"><i data-lucide="truck" class="h-4 w-4 text-sky-300"></i>Авто</h4>
+            <form id="carForm" class="grid gap-2" novalidate>
+              <input name="plate" type="text" class="input uppercase" placeholder="Держ. номер, напр. AA1234BB" maxlength="20" />
+              <input name="brand" type="text" class="input" placeholder="Марка, напр. MAN TGX" maxlength="60" />
+              <button type="submit" class="btn-primary justify-center"><i data-lucide="plus" class="h-4 w-4"></i>Додати авто</button>
+            </form>
+            <ul id="carsList" class="mt-4 space-y-2"></ul>
+          </section>
+        </div>
+        <p class="border-t border-white/5 px-5 py-3 text-xs text-slate-500">Якщо видалити водія чи авто, у вже збережених рейсах їхнє ім'я/номер залишиться.</p>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="importFile" accept="application/json,.json" class="hidden" />
+  <div id="toasts" class="pointer-events-none fixed bottom-4 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 flex-col gap-2"></div>
+
+  <!-- calc.js та app.js завантажуються з auth.js лише після входу -->
+  <script src="js/auth-config.js"></script>
+  <script src="js/auth.js"></script>
+</body>
+</html>
