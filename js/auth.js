@@ -3,7 +3,7 @@
   'use strict';
 
   const ENV = window.ENV || {};
-  const APP_SCRIPTS = ['js/calc.js', 'js/report.js', 'js/app.js'];
+  const APP_SCRIPTS = ['js/calc.js', 'js/report.js', 'js/app.js', 'js/fx.js'];
   // Ключі старої локальної версії — для одноразового перенесення в хмару
   const LEGACY = {
     trips: 'truck-ledger.trips.v1',
@@ -133,20 +133,15 @@
     document.getElementById('authScreen')?.remove();
     const wrap = document.createElement('div');
     wrap.id = 'authScreen';
-    wrap.className = 'fixed inset-0 z-[100] grid place-items-center bg-ink-950 px-4';
+    wrap.className = 'fixed inset-0 z-[100] grid place-items-center bg-ink-950/40 px-4';
     wrap.innerHTML = `
-      <div class="pointer-events-none absolute inset-0 overflow-hidden">
-        <div class="absolute -top-40 -left-40 h-[28rem] w-[28rem] rounded-full bg-indigo-600/20 blur-3xl"></div>
-        <div class="absolute bottom-0 -right-40 h-[26rem] w-[26rem] rounded-full bg-emerald-500/10 blur-3xl"></div>
-      </div>
-      <form id="authForm" class="relative w-full max-w-sm rounded-2xl border border-white/10 bg-ink-900/80 p-6 shadow-2xl backdrop-blur-xl sm:p-8" novalidate>
-        <div class="mb-6 flex items-center gap-3">
-          <div class="grid h-11 w-11 place-items-center rounded-xl bg-gradient-to-br from-indigo-500 to-emerald-500 shadow-lg shadow-indigo-500/30">
-            <i data-lucide="lock-keyhole" class="h-5 w-5 text-white"></i>
-          </div>
+      <div class="auth-road" aria-hidden="true"></div>
+      <form id="authForm" class="auth-card relative w-full max-w-sm p-6 sm:p-8" novalidate>
+        <div class="mb-7 flex items-center gap-3">
+          <span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4.5 21 9.5 3" /><path d="M19.5 21 14.5 3" /><path class="brand-lane" d="M12 21V3" stroke-dasharray="3.2 3.2" /></svg></span>
           <div class="leading-tight">
-            <div class="text-lg font-bold text-white">Облік рейсів</div>
-            <div class="text-xs text-slate-400">Дані зберігаються в хмарі</div>
+            <div class="brand-name">Облік рейсів</div>
+            <div class="mt-1 text-xs text-slate-400">Увійдіть, щоб побачити свої рейси</div>
           </div>
         </div>
         <label class="mb-1 block text-xs font-medium text-slate-400" for="authEmail">Пошта</label>

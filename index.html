@@ -4,25 +4,39 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="robots" content="noindex, nofollow" />
-  <meta name="theme-color" content="#0b1020" />
+  <meta name="theme-color" content="#1b2027" />
   <title>Облік рейсів — вантажні перевезення</title>
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%9A%9A%3C/text%3E%3C/svg%3E" />
 
   <!-- Шрифти -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Onest:wght@400;500;600;700&family=Unbounded:wght@500;600;700&display=swap" rel="stylesheet" />
 
   <!-- Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   <script>
+    // Палітра «Асфальт і розмітка»: сірий асфальт + сигнальний жовтий.
+    // indigo/slate перевизначені, тож усі існуючі класи автоматично беруть нові кольори.
     tailwind.config = {
       darkMode: 'class',
       theme: {
         extend: {
-          fontFamily: { sans: ['Inter', 'system-ui', 'sans-serif'] },
+          fontFamily: {
+            sans: ['Onest', 'system-ui', 'sans-serif'],
+            display: ['Unbounded', 'Onest', 'system-ui', 'sans-serif'],
+          },
           colors: {
-            ink: { 950: '#070b16', 900: '#0b1020', 800: '#111830', 700: '#1a2340', 600: '#26304f' },
+            white: '#f2f0ea',
+            ink: { 950: '#1b2027', 900: '#222830', 800: '#2a313a', 700: '#353d47', 600: '#46505c' },
+            slate: {
+              50: '#f6f5f1', 100: '#ecebe6', 200: '#dcdbd5', 300: '#c3c5c4', 400: '#9da3a9',
+              500: '#7a828b', 600: '#5b636d', 700: '#414952', 800: '#2c333c', 900: '#222830', 950: '#1b2027',
+            },
+            indigo: {
+              50: '#fff9e5', 100: '#fdf0c2', 200: '#fbe39a', 300: '#f8d55f', 400: '#f5c838',
+              500: '#efba18', 600: '#cf9c0a', 700: '#a17806', 800: '#735604', 900: '#4a3803',
+            },
           },
         },
       },
@@ -30,36 +44,37 @@
   </script>
 
   <!-- Іконки та графіки -->
-  <script src="https://unpkg.com/lucide@0.460.0/dist/umd/lucide.min.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/duotone/style.css" />
+  <link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2.1.1/src/bold/style.css" />
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
   <!-- Хмарна база даних -->
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
   <link rel="stylesheet" href="css/styles.css" />
-  <style>html.auth-locked body > *:not(#authScreen) { display: none !important; }</style>
+  <style>html.auth-locked body > *:not(#authScreen):not(.app-bg) { display: none !important; }</style>
 </head>
 <body class="bg-ink-950 text-slate-200 font-sans antialiased min-h-screen">
-  <!-- Декоративний фон -->
-  <div class="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-    <div class="absolute -top-40 -left-40 h-[28rem] w-[28rem] rounded-full bg-indigo-600/20 blur-3xl"></div>
-    <div class="absolute top-1/3 -right-40 h-[26rem] w-[26rem] rounded-full bg-emerald-500/10 blur-3xl"></div>
-  </div>
-
+  <!-- Фон: розмите фото Renault Master (CC BY-SA 4.0, MarcelX42, Wikimedia Commons) -->
+  <div class="app-bg" aria-hidden="true"></div>
   <!-- Шапка -->
-  <header class="sticky top-0 z-30 border-b border-white/5 bg-ink-950/70 backdrop-blur-xl">
+  <header class="app-header sticky top-0 z-30">
     <div class="app-container mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6">
-      <a href="#" class="flex items-center gap-3">
-        <div class="grid h-10 w-10 place-items-center rounded-xl bg-gradient-to-br from-indigo-500 to-emerald-500 shadow-lg shadow-indigo-500/30">
-          <i data-lucide="truck" class="h-5 w-5 text-white"></i>
-        </div>
-        <div class="hidden leading-tight xl:block">
-          <div class="text-base font-bold text-white sm:text-lg">Облік рейсів</div>
-          <div class="text-xs text-slate-400">Вантажні перевезення · фінанси</div>
-        </div>
+      <a href="#" class="brand" aria-label="Облік рейсів — на панель">
+        <span class="brand-mark" aria-hidden="true">
+          <!-- Логотип: дорога в перспективі з розміткою -->
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <path d="M4.5 21 9.5 3" /><path d="M19.5 21 14.5 3" />
+            <path class="brand-lane" d="M12 21V3" stroke-dasharray="3.2 3.2" />
+          </svg>
+        </span>
+        <span class="brand-text md:hidden xl:block">
+          <span class="brand-name">Облік рейсів</span>
+          <span class="brand-road" aria-hidden="true"><i data-lucide="truck" class="brand-truck"></i></span>
+        </span>
       </a>
 
-      <!-- Вкладки -->
-      <nav class="tabs ml-1 sm:ml-3">
+      <!-- Вкладки (на телефоні — нижнє меню) -->
+      <nav class="tabs ml-1 hidden sm:ml-3 md:flex" aria-label="Розділи">
         <a href="#" class="tab" data-tab="dashboard"><i data-lucide="layout-dashboard" class="h-4 w-4"></i><span>Панель</span></a>
         <a href="#trips" class="tab" data-tab="trips"><i data-lucide="list" class="h-4 w-4"></i><span>Рейси</span></a>
       </nav>
@@ -82,27 +97,38 @@
             <button id="logoutBtn" type="button" class="dropdown-item"><i data-lucide="log-out" class="h-4 w-4"></i>Вийти</button>
           </div>
         </div>
-        <button id="refsBtn" class="btn-ghost" title="Водії та авто">
-          <i data-lucide="users" class="h-4 w-4"></i><span class="hidden md:inline">Водії та авто</span>
-        </button>
-        <button id="settingsBtn" class="btn-ghost" title="Налаштування ставок">
-          <i data-lucide="settings-2" class="h-4 w-4"></i><span class="hidden md:inline">Ставки</span>
-        </button>
-        <button id="addTripBtn" class="btn-primary">
-          <i data-lucide="plus" class="h-4 w-4"></i><span>Новий рейс</span>
-        </button>
+        <div class="hidden items-center gap-2 md:flex">
+          <button id="refsBtn" class="btn-ghost" title="Водії та авто">
+            <i data-lucide="users" class="h-4 w-4"></i><span class="hidden lg:inline">Водії та авто</span>
+          </button>
+          <button id="settingsBtn" class="btn-ghost" title="Налаштування ставок">
+            <i data-lucide="settings-2" class="h-4 w-4"></i><span class="hidden lg:inline">Ставки</span>
+          </button>
+          <button id="addTripBtn" class="btn-primary">
+            <i data-lucide="plus" class="h-4 w-4"></i><span>Новий рейс</span>
+          </button>
+        </div>
       </div>
     </div>
   </header>
 
-  <main class="app-container mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 sm:py-8">
+  <!-- Нижнє меню (телефон) -->
+  <nav class="bottom-nav md:hidden" aria-label="Розділи">
+    <a href="#" class="bn-item" data-tab="dashboard"><i data-lucide="layout-dashboard"></i><span>Панель</span></a>
+    <a href="#trips" class="bn-item" data-tab="trips"><i data-lucide="list"></i><span>Рейси</span></a>
+    <button type="button" class="bn-add" data-action="add" aria-label="Новий рейс"><i data-lucide="plus"></i></button>
+    <button type="button" class="bn-item" data-action="refs"><i data-lucide="users"></i><span>Водії</span></button>
+    <button type="button" class="bn-item" data-action="settings"><i data-lucide="settings-2"></i><span>Ставки</span></button>
+  </nav>
+
+  <main class="app-container mx-auto max-w-7xl space-y-6 px-4 pb-28 pt-6 sm:px-6 sm:pt-8 md:pb-8">
     <!-- Заголовок + фільтр періоду -->
     <section class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
       <div>
-        <h1 id="viewTitle" class="text-2xl font-extrabold tracking-tight text-white sm:text-3xl">Фінансова панель</h1>
+        <h1 id="viewTitle" class="page-title">Фінансова панель</h1>
         <p class="mt-1 text-sm text-slate-400" id="periodLabel">Усі рейси</p>
       </div>
-      <div class="flex flex-wrap items-center gap-2">
+      <div class="filters grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
         <div class="select-wrap">
           <i data-lucide="calendar" class="h-4 w-4 text-slate-400"></i>
           <select id="yearFilter" class="select"></select>
@@ -126,7 +152,10 @@
     <div id="dashboardView" class="space-y-6">
     <!-- KPI: головні показники -->
     <section>
-      <div class="section-label">Головне</div>
+      <div class="section-label flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <span>Головне</span>
+        <span class="text-xs font-normal text-slate-500">Натисніть на будь-який блок, щоб побачити, як він рахується</span>
+      </div>
       <div id="kpiMain" class="grid gap-3 sm:gap-4 md:grid-cols-3"></div>
     </section>
     <!-- KPI: інші показники -->
@@ -137,31 +166,43 @@
 
     <!-- Графік + структура -->
     <section class="grid gap-4 lg:grid-cols-3">
-      <div class="card lg:col-span-2">
-        <div class="mb-4 flex items-center justify-between">
+      <div class="card flex flex-col lg:col-span-2">
+        <div class="mb-3 flex items-start justify-between gap-3">
           <div>
-            <h2 class="card-title">Динаміка по місяцях</h2>
-            <p class="text-xs text-slate-400">Фрахт, витрати, чистий прибуток бізнесу та ваш</p>
+            <h2 class="card-title">Куди пішов фрахт по місяцях</h2>
+            <p class="text-xs text-slate-400">Висота стовпчика — фрахт місяця. Цифра зверху — ваш прибуток. Натисніть на місяць, щоб вибрати його.</p>
           </div>
-          <i data-lucide="bar-chart-3" class="h-5 w-5 text-slate-500"></i>
+          <button type="button" id="chartViewBtn" class="btn-ghost shrink-0 !min-h-0 !px-3 !py-1.5 text-xs" aria-pressed="false">
+            <i data-lucide="list" class="h-4 w-4"></i><span>Таблиця</span>
+          </button>
         </div>
-        <div class="relative h-72">
-          <canvas id="monthlyChart"></canvas>
+        <div id="chartLegend" class="chart-legend mb-3">
+          <span class="lg-item"><i class="lg-sw" style="background:#3987e5"></i>Витрати на рейс</span>
+          <span class="lg-item"><i class="lg-sw" style="background:#199e70"></i>Зарплати</span>
+          <span class="lg-item"><i class="lg-sw" style="background:#9085e9"></i>Компаньйону</span>
+          <span class="lg-item"><i class="lg-sw" style="background:#c98500"></i>Ваш прибуток</span>
+        </div>
+        <div id="chartBox" class="chart-box relative h-72 lg:h-auto lg:min-h-[18rem] lg:flex-1">
+          <canvas id="monthlyChart" role="img" aria-label="Стовпчиковий графік: фрахт по місяцях, розбитий на витрати на рейс, зарплати, частку компаньйона і ваш прибуток. Точні цифри — у таблиці."></canvas>
           <div id="chartEmpty" class="absolute inset-0 hidden place-items-center text-sm text-slate-500">Немає даних для графіка</div>
         </div>
+        <div id="chartTable" class="hidden max-h-[32rem] overflow-auto"></div>
       </div>
 
       <div class="card">
         <div class="mb-4 flex items-center justify-between">
           <div>
             <h2 class="card-title">Куди йдуть гроші</h2>
-            <p class="text-xs text-slate-400">Структура від суми фрахту</p>
+            <p class="text-xs text-slate-400">Уся смужка — це фрахт за період</p>
           </div>
           <i data-lucide="pie-chart" class="h-5 w-5 text-slate-500"></i>
         </div>
-        <div id="structure" class="space-y-3.5"></div>
+        <div id="structBar" class="seg-bar" role="group"></div>
+        <p id="structLoss" class="mt-2 hidden items-center gap-1.5 text-xs text-loss"></p>
+        <div id="structLegend" class="chart-legend mt-2.5"></div>
+        <div id="structure" class="mt-5 space-y-4"></div>
         <div class="mt-5 border-t border-white/5 pt-4">
-          <div class="mb-2 text-xs font-medium uppercase tracking-wider text-slate-500">Оплата фрахту</div>
+          <div class="mb-2 text-sm font-medium text-slate-400">Оплата фрахту</div>
           <div id="payments" class="space-y-2"></div>
         </div>
       </div>
@@ -238,7 +279,8 @@
     </section>
 
     <footer class="pb-6 text-center text-xs text-slate-500">
-      Дані зберігаються локально у вашому браузері. Регулярно робіть резервну копію через меню «Дані».
+      Дані зберігаються в хмарі й доступні з будь-якого пристрою. Резервна копія — у меню «Дані».
+      <span class="mt-1 block text-slate-600">Фото на фоні: <a class="underline hover:text-slate-400" href="https://commons.wikimedia.org/wiki/File:Renault_Master_IAA_Transportation_2026_(DSC6714).jpg" target="_blank" rel="noopener noreferrer">MarcelX42</a>, <a class="underline hover:text-slate-400" href="https://creativecommons.org/licenses/by-sa/4.0/deed.uk" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a>, розмито</span>
     </footer>
   </main>
 
@@ -377,6 +419,26 @@
     </div>
   </div>
 
+  <!-- ============ Модалка: як рахується показник ============ -->
+  <div id="kpiModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="kpiTitle">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-panel max-w-2xl">
+      <div class="flex max-h-[100dvh] flex-col sm:max-h-[92vh]">
+        <div class="flex items-start justify-between gap-3 border-b border-white/5 px-5 py-4">
+          <div class="flex min-w-0 items-center gap-3">
+            <div id="kpiIcon" class="kx-icon" aria-hidden="true"></div>
+            <div class="min-w-0">
+              <h3 id="kpiTitle" class="text-lg font-bold text-white"></h3>
+              <div id="kpiPeriod" class="truncate text-sm text-slate-400"></div>
+            </div>
+          </div>
+          <button type="button" class="icon-btn" data-close aria-label="Закрити"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <div id="kpiBody" class="flex-1 overflow-y-auto p-5 sm:p-6"></div>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ Модалка: ставки ============ -->
   <div id="settingsModal" class="modal hidden" role="dialog" aria-modal="true">
     <div class="modal-backdrop" data-close></div>
@@ -447,6 +509,7 @@
   <div id="toasts" class="pointer-events-none fixed bottom-4 left-1/2 z-50 flex w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 flex-col gap-2"></div>
 
   <!-- calc.js та app.js завантажуються з auth.js лише після входу та завантаження даних -->
+  <script src="js/icons.js"></script>
   <script src="js/env.js"></script>
   <script src="js/cloud.js"></script>
   <script src="js/auth.js"></script>

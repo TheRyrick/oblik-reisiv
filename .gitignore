@@ -24,3 +24,8 @@ node_modules/
 # Ключі Supabase генеруються під час деплою (tools/build-env.sh)
 js/env.js
 build/
+
+# Скіли для Claude (встановлені через npx skills) — не для сайту
+.agents/
+.claude/skills/
+skills-lock.json

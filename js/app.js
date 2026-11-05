@@ -58,8 +58,12 @@
   /** Заголовок рейсу: крупний держ. номер + марка; якщо авто не вказано — дати. */
   function tripHeading(t, cls = '') {
     const { plate, brand } = tripPlate(t);
-    if (!plate) return `<div class="plate ${cls}">${fmtDate(t.startDate)} — ${fmtDate(t.endDate)}</div>`;
-    return `<div class="plate ${cls}"><span>${escapeHtml(plate)}</span>${brand ? `<span class="plate-brand">${escapeHtml(brand)}</span>` : ''}</div>`;
+    if (!plate) return `<div class="trip-dates ${cls}">${fmtDate(t.startDate)} — ${fmtDate(t.endDate)}</div>`;
+    return `<div class="plate-line ${cls}">${plateHtml(plate)}${brand ? `<span class="plate-brand">${escapeHtml(brand)}</span>` : ''}</div>`;
+  }
+  /** Держ. номер у вигляді українського номерного знака (синя смужка UA зліва). */
+  function plateHtml(plate) {
+    return `<span class="plate"><span class="plate-ua" aria-hidden="true">UA</span><span class="plate-num">${escapeHtml(plate)}</span></span>`;
   }
   const tripDates = (t) => `${fmtDate(t.startDate)} — ${fmtDate(t.endDate)}`;
 
@@ -89,7 +93,7 @@
   }
 
   const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
-  const profitClass = (n) => (n > 0 ? 'text-emerald-400' : n < 0 ? 'text-rose-400' : 'text-slate-300');
+  const profitClass = (n) => (n > 0 ? 'text-profit' : n < 0 ? 'text-loss' : 'text-slate-300');
 
   function refreshIcons() { if (window.lucide) window.lucide.createIcons(); }
 
@@ -106,13 +110,13 @@
   }
 
   // ---------- Фільтрація ----------
-  function filteredTrips() {
+  function filteredTrips(ignorePeriod = false) {
     const q = query.trim().toLowerCase();
     return trips
       .filter((t) => {
         const [y, m] = (t.startDate || '').split('-');
-        if (filter.year !== 'all' && y !== filter.year) return false;
-        if (filter.month !== 'all' && m !== filter.month) return false;
+        if (!ignorePeriod && filter.year !== 'all' && y !== filter.year) return false;
+        if (!ignorePeriod && filter.month !== 'all' && m !== filter.month) return false;
         if (filter.driver !== 'all' && (t.driverId || '') !== filter.driver) return false;
         if (filter.car !== 'all' && (t.carId || '') !== filter.car) return false;
         if (q && !(`${t.route || ''} ${t.note || ''} ${tripDriver(t)} ${tripCar(t)}`.toLowerCase().includes(q))) return false;
@@ -163,26 +167,26 @@
   // ---------- KPI ----------
   function renderKpis(s) {
     const main = [
-      { label: '1. Чистий прибуток бізнесу', value: uah(s.netProfit), sub: s.freight > 0 ? `рентабельність ${fmtL.format((s.netProfit / s.freight) * 100)}%` + (s.monthlyExpenses ? ` · з урахуванням щомісячних ${uah(s.monthlyExpenses)}` : '') : '—', icon: 'trending-up', color: 'text-emerald-300 bg-emerald-500/15', glow: 'rgba(16,185,129,.22)', valueClass: profitClass(s.netProfit) },
-      { label: '2. Компаньйону', value: uah(s.partnerShare), sub: (s.netProfit + s.monthlyExpenses) > 0 ? `${fmtL.format((s.partnerShare / (s.netProfit + s.monthlyExpenses)) * 100)}% від чистого прибутку` + (s.monthlyExpenses ? ' (без щомісячних)' : '') : 'від чистого прибутку бізнесу', icon: 'handshake', color: 'text-pink-300 bg-pink-500/15', glow: 'rgba(236,72,153,.2)' },
-      { label: '3. Ваш прибуток', value: uah(s.ownerProfit), sub: s.monthlyExpenses ? 'після компаньйону та щомісячних витрат' : 'чистий прибуток бізнесу після компаньйону', icon: 'piggy-bank', color: 'text-lime-300 bg-lime-500/15', glow: 'rgba(132,204,22,.2)', valueClass: profitClass(s.ownerProfit) },
+      { key: 'net', label: '1. Чистий прибуток бізнесу', value: uah(s.netProfit), sub: s.freight > 0 ? `рентабельність ${fmtL.format((s.netProfit / s.freight) * 100)}%` + (s.monthlyExpenses ? ` · з урахуванням щомісячних ${uah(s.monthlyExpenses)}` : '') : '—', icon: 'trending-up', color: 'text-emerald-300 bg-emerald-500/15', glow: 'rgba(16,185,129,.22)', valueClass: profitClass(s.netProfit) },
+      { key: 'partner', label: '2. Компаньйону', value: uah(s.partnerShare), sub: (s.netProfit + s.monthlyExpenses) > 0 ? `${fmtL.format((s.partnerShare / (s.netProfit + s.monthlyExpenses)) * 100)}% від чистого прибутку` + (s.monthlyExpenses ? ' (без щомісячних)' : '') : 'від чистого прибутку бізнесу', icon: 'handshake', color: 'text-pink-300 bg-pink-500/15', glow: 'rgba(236,72,153,.2)' },
+      { key: 'owner', label: '3. Ваш прибуток', value: uah(s.ownerProfit), sub: s.monthlyExpenses ? 'після компаньйону та щомісячних витрат' : 'чистий прибуток бізнесу після компаньйону', icon: 'piggy-bank', color: 'text-lime-300 bg-lime-500/15', glow: 'rgba(132,204,22,.2)', valueClass: profitClass(s.ownerProfit) },
     ];
     const items = [
-      { label: 'Сума фрахту', value: uah(s.freight), sub: `${s.count} ${plural(s.count, 'рейс', 'рейси', 'рейсів')}` + (s.dispatch ? ` · без диспетчерських ${uah(s.dispatch)}` : ''), icon: 'wallet', color: 'text-indigo-300 bg-indigo-500/15', glow: 'rgba(99,102,241,.22)' },
-      { label: 'ЗП водія', value: uah(s.driverPay), sub: `+ добові ${uah(s.perDiem)}`, icon: 'user-round', color: 'text-amber-300 bg-amber-500/15', glow: 'rgba(245,158,11,.2)' },
-      { label: 'ЗП логіста', value: uah(s.logistPay), sub: (s.freight > 0 ? `${fmtL.format((s.logistPay / s.freight) * 100)}% від фрахту` : 'від суми фрахту') + ' · входить у чистий прибуток', icon: 'headset', color: 'text-fuchsia-300 bg-fuchsia-500/15', glow: 'rgba(217,70,239,.2)' },
-      { label: 'Щомісячні витрати', value: uah(s.monthlyExpenses), sub: s.monthlyRate ? `${uah(s.monthlyRate)} × ${s.months} ${plural(s.months, 'місяць', 'місяці', 'місяців')}` : 'вкажіть суму в «Ставках»', icon: 'calendar-check', color: 'text-slate-300 bg-slate-500/15', glow: 'rgba(100,116,139,.2)' },
-      { label: 'Ціна за 1 км', value: uah2(s.pricePerKm), sub: `${fmtInt.format(s.km)} км пробігу`, icon: 'route', color: 'text-sky-300 bg-sky-500/15', glow: 'rgba(14,165,233,.2)' },
-      { label: 'Паливо (фактично)', value: uah(s.fuelCost), sub: `${fmtL.format(s.fuelLiters)} л · ${fmtL.format(s.fuelPer100)} л/100км · знижка ${uah(s.fuelDiscount)}`, icon: 'fuel', color: 'text-orange-300 bg-orange-500/15', glow: 'rgba(249,115,22,.2)' },
-      { label: 'СТО', value: uah(s.sto), sub: `за ${fmtInt.format(s.days)} ${plural(s.days, 'доба', 'доби', 'діб')} у рейсах`, icon: 'hammer', color: 'text-yellow-300 bg-yellow-500/15', glow: 'rgba(234,179,8,.18)' },
-      { label: 'Ремонт', value: uah(s.repair), sub: s.km > 0 ? `${fmtDec.format(s.repair / s.km)} ₴ на 1 км` : '—', icon: 'wrench', color: 'text-cyan-300 bg-cyan-500/15', glow: 'rgba(6,182,212,.2)' },
-      { label: 'Податок', value: uah(s.tax), sub: `від безналу ${uah(s.bank)}`, icon: 'landmark', color: 'text-rose-300 bg-rose-500/15', glow: 'rgba(244,63,94,.18)' },
-      { label: 'Діб у рейсах', value: fmtInt.format(s.days), sub: `добові ${uah(s.perDiem)}`, icon: 'calendar-clock', color: 'text-violet-300 bg-violet-500/15', glow: 'rgba(139,92,246,.2)' },
-      { label: 'Прибуток авто', value: uah(s.carProfit), sub: 'база для ЗП (без СТО і податку)', icon: 'truck', color: 'text-teal-300 bg-teal-500/15', glow: 'rgba(20,184,166,.2)', valueClass: profitClass(s.carProfit) },
-      { label: 'Усі витрати', value: uah(s.totalExpenses), sub: 'паливо, податок, добові, СТО, ремонт, ЗП, щомісячні', icon: 'receipt', color: 'text-slate-300 bg-slate-500/15', glow: 'rgba(100,116,139,.2)' },
+      { key: 'freight', label: 'Сума фрахту', value: uah(s.freight), sub: `${s.count} ${plural(s.count, 'рейс', 'рейси', 'рейсів')}` + (s.dispatch ? ` · без диспетчерських ${uah(s.dispatch)}` : ''), icon: 'wallet', color: 'text-indigo-300 bg-indigo-500/15', glow: 'rgba(99,102,241,.22)' },
+      { key: 'driverPay', label: 'ЗП водія', value: uah(s.driverPay), sub: `+ добові ${uah(s.perDiem)}`, icon: 'user-round', color: 'text-amber-300 bg-amber-500/15', glow: 'rgba(245,158,11,.2)' },
+      { key: 'logistPay', label: 'ЗП логіста', value: uah(s.logistPay), sub: (s.freight > 0 ? `${fmtL.format((s.logistPay / s.freight) * 100)}% від фрахту` : 'від суми фрахту') + ' · входить у чистий прибуток', icon: 'headset', color: 'text-fuchsia-300 bg-fuchsia-500/15', glow: 'rgba(217,70,239,.2)' },
+      { key: 'monthly', label: 'Щомісячні витрати', value: uah(s.monthlyExpenses), sub: s.monthlyRate ? `${uah(s.monthlyRate)} × ${s.months} ${plural(s.months, 'місяць', 'місяці', 'місяців')}` : 'вкажіть суму в «Ставках»', icon: 'calendar-check', color: 'text-slate-300 bg-slate-500/15', glow: 'rgba(100,116,139,.2)' },
+      { key: 'pricePerKm', label: 'Ціна за 1 км', value: uah2(s.pricePerKm), sub: `${fmtInt.format(s.km)} км пробігу`, icon: 'route', color: 'text-sky-300 bg-sky-500/15', glow: 'rgba(14,165,233,.2)' },
+      { key: 'fuel', label: 'Паливо (фактично)', value: uah(s.fuelCost), sub: `${fmtL.format(s.fuelLiters)} л · ${fmtL.format(s.fuelPer100)} л/100км · знижка ${uah(s.fuelDiscount)}`, icon: 'fuel', color: 'text-orange-300 bg-orange-500/15', glow: 'rgba(249,115,22,.2)' },
+      { key: 'sto', label: 'СТО', value: uah(s.sto), sub: `за ${fmtInt.format(s.days)} ${plural(s.days, 'доба', 'доби', 'діб')} у рейсах`, icon: 'hammer', color: 'text-yellow-300 bg-yellow-500/15', glow: 'rgba(234,179,8,.18)' },
+      { key: 'repair', label: 'Ремонт', value: uah(s.repair), sub: s.km > 0 ? `${fmtDec.format(s.repair / s.km)} ₴ на 1 км` : '—', icon: 'wrench', color: 'text-cyan-300 bg-cyan-500/15', glow: 'rgba(6,182,212,.2)' },
+      { key: 'tax', label: 'Податок', value: uah(s.tax), sub: `від безналу ${uah(s.bank)}`, icon: 'landmark', color: 'text-rose-300 bg-rose-500/15', glow: 'rgba(244,63,94,.18)' },
+      { key: 'days', label: 'Діб у рейсах', value: fmtInt.format(s.days), sub: `добові ${uah(s.perDiem)}`, icon: 'calendar-clock', color: 'text-violet-300 bg-violet-500/15', glow: 'rgba(139,92,246,.2)' },
+      { key: 'carProfit', label: 'Прибуток авто', value: uah(s.carProfit), sub: 'база для ЗП (без СТО і податку)', icon: 'truck', color: 'text-teal-300 bg-teal-500/15', glow: 'rgba(20,184,166,.2)', valueClass: profitClass(s.carProfit) },
+      { key: 'totalExpenses', label: 'Усі витрати', value: uah(s.totalExpenses), sub: 'паливо, податок, добові, СТО, ремонт, ЗП, щомісячні', icon: 'receipt', color: 'text-slate-300 bg-slate-500/15', glow: 'rgba(100,116,139,.2)' },
     ];
     const card = (k, big) => `
-      <div class="kpi ${big ? 'kpi-main' : ''}" style="--glow:${k.glow}">
+      <div class="kpi ${big ? 'kpi-main' : ''}" data-kpi="${k.key}" role="button" tabindex="0" title="Як рахується">
         <div class="flex items-start justify-between gap-2">
           <div class="${big ? 'text-sm font-semibold text-slate-300 sm:text-base' : 'text-xs font-medium text-slate-400 sm:text-sm'}">${k.label}</div>
           <div class="kpi-icon ${k.color}"><i data-lucide="${k.icon}" class="${big ? 'h-5 w-5' : 'h-4 w-4'}"></i></div>
@@ -194,102 +198,282 @@
     $('#kpis').innerHTML = items.map((k) => card(k, false)).join('');
   }
 
-  // ---------- Структура ----------
+  // ---------- Кольори графіків ----------
+  // Палітра перевірена скілом dataviz (validate_palette.js, темний фон #222830):
+  // усі 5 перевірок PASS, зокрема розрізнення для дальтоніків між сусідніми кольорами.
+  // Колір закріплений за групою грошей і не змінюється від фільтрів.
+  const VIZ = {
+    trip: '#3987e5',    // витрати на рейс
+    pay: '#199e70',     // зарплати
+    partner: '#9085e9', // компаньйону
+    owner: '#c98500',   // ваш прибуток
+    loss: '#ef6a5b',    // збиток (статус)
+    surface: '#232931',
+    muted: '#7a828b',
+    accent: '#efba18',
+    text2: '#c3c5c4',
+  };
+  /** Розкладає суму фрахту на 4 групи: разом вони дорівнюють фрахту. */
+  function moneyGroups(s) {
+    return {
+      trip: s.fuelCost + s.tax + s.sto + s.repair + s.other + s.monthlyExpenses,
+      pay: s.driverPay + s.logistPay + s.perDiem,
+      partner: s.partnerShare,
+      owner: s.ownerProfit,
+    };
+  }
+  const GROUP_NAMES = { trip: 'Витрати на рейс', pay: 'Зарплати', partner: 'Компаньйону', owner: 'Ваш прибуток' };
+  const shortMoney = (v) => (Math.abs(v) >= 1000 ? fmtL.format(v / 1000) + 'к' : fmtInt.format(Math.round(v)));
+  /** Текст поверх кольору: темний або білий — що контрастніше. */
+  function inkOn(hex) {
+    const c = hex.replace('#', '').match(/../g).map((x) => { const v = parseInt(x, 16) / 255; return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4; });
+    const L = 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+    return (L + 0.05) / 0.05 > 1.05 / (L + 0.05) ? '#14171c' : '#ffffff';
+  }
+
+  /** Помісячний ряд (до 12 місяців підряд) для графіка і міні-трендів.
+      Враховує фільтри водія/авто/пошуку, але не періоду — щоб було видно тренд. */
+  function monthTrend() {
+    const groups = new Map();
+    for (const t of filteredTrips(true)) {
+      const k = (t.startDate || '').slice(0, 7);
+      if (!/^\d{4}-\d{2}$/.test(k)) continue;
+      if (!groups.has(k)) groups.set(k, []);
+      groups.get(k).push(t);
+    }
+    if (!groups.size) return { keys: [], sums: [], sel: [] };
+    const sorted = Array.from(groups.keys()).sort();
+    const all = [];
+    let [y, m] = sorted[0].split('-').map(Number);
+    const [ly, lm] = sorted[sorted.length - 1].split('-').map(Number);
+    while (y < ly || (y === ly && m <= lm)) {
+      all.push(`${y}-${String(m).padStart(2, '0')}`);
+      m++; if (m > 12) { m = 1; y++; }
+    }
+    const isSel = (k) => { const [yy, mm] = k.split('-'); return (filter.year === 'all' || filter.year === yy) && (filter.month === 'all' || filter.month === mm); };
+    // Показуємо останні 12 місяців; вікно зсувається назад, лише якщо вибраний період у них не влазить
+    let end = all.length;
+    if (filter.year !== 'all' || filter.month !== 'all') {
+      let lastSel = -1;
+      for (let i = all.length - 1; i >= 0; i--) if (isSel(all[i])) { lastSel = i; break; }
+      if (lastSel >= 0 && lastSel < all.length - 12) end = lastSel + 1;
+    }
+    const keys = all.slice(Math.max(0, end - 12), end);
+    return { keys, sums: keys.map((k) => summarize(groups.get(k) || [], settings)), sel: keys.map(isSel) };
+  }
+  const monthLabel = (k, long) => { const [y, m] = k.split('-'); return long ? `${MONTHS[+m - 1]} ${y}` : `${MONTHS_SHORT[+m - 1]} ${y.slice(2)}`; };
+
+  // ---------- Структура: куди йдуть гроші ----------
   function renderStructure(s) {
-    const base = s.freight || 1;
-    const rows = [
-      { label: 'Паливо', v: s.fuelCost, c: '#f97316' },
-      { label: 'Податок', v: s.tax, c: '#f43f5e' },
-      { label: 'Добові', v: s.perDiem, c: '#8b5cf6' },
-      { label: 'СТО', v: s.sto, c: '#eab308' },
-      { label: 'Ремонт', v: s.repair, c: '#06b6d4' },
-      { label: 'ЗП водія', v: s.driverPay, c: '#f59e0b' },
-      { label: 'ЗП логіста', v: s.logistPay, c: '#d946ef' },
-      { label: 'Інші витрати', v: s.other, c: '#64748b' },
-      { label: 'Щомісячні витрати', v: s.monthlyExpenses, c: '#94a3b8' },
-      { label: 'Компаньйону', v: s.partnerShare, c: '#ec4899' },
-      { label: 'Ваш прибуток', v: s.ownerProfit, c: '#10b981' },
+    const g = moneyGroups(s);
+    const base = s.freight;
+    const pct = (v) => (base > 0 ? (v / base) * 100 : 0);
+    const groups = [
+      { id: 'trip', items: [
+        { key: 'fuel', label: 'Паливо', v: s.fuelCost }, { key: 'tax', label: 'Податок', v: s.tax },
+        { key: 'sto', label: 'СТО', v: s.sto }, { key: 'repair', label: 'Ремонт', v: s.repair },
+        { key: 'other', label: 'Інші витрати', v: s.other },
+        ...(s.monthlyExpenses ? [{ key: 'monthly', label: 'Щомісячні витрати', v: s.monthlyExpenses }] : []),
+      ] },
+      { id: 'pay', items: [
+        { key: 'driverPay', label: 'ЗП водія', v: s.driverPay }, { key: 'logistPay', label: 'ЗП логіста', v: s.logistPay },
+        { key: 'perDiem', label: 'Добові', v: s.perDiem },
+      ] },
+      { id: 'partner', key: 'partner', items: [] },
+      { id: 'owner', key: 'owner', items: [] },
     ];
-    $('#structure').innerHTML = rows.map((r) => {
-      const pct = s.freight > 0 ? (r.v / base) * 100 : 0;
-      return `
-        <div>
-          <div class="mb-1.5 flex items-center justify-between text-sm">
-            <span class="flex items-center gap-2 text-slate-300"><span class="h-2.5 w-2.5 rounded-full" style="background:${r.c}"></span>${r.label}</span>
-            <span class="num font-semibold ${r.v < 0 ? 'text-rose-400' : 'text-white'}">${uah(r.v)} <span class="ml-1 text-xs font-normal text-slate-500">${fmtL.format(pct)}%</span></span>
-          </div>
-          <div class="bar"><i style="width:${Math.max(0, Math.min(100, pct))}%;background:${r.c}"></i></div>
+
+    // Висока сегментована смужка: весь фрахт, порізаний на 4 частини
+    const parts = groups.filter((x) => g[x.id] > 0);
+    const whole = parts.reduce((a, x) => a + g[x.id], 0) || 1;
+    $('#structBar').innerHTML = parts.map((x) => {
+      const share = pct(g[x.id]);
+      const tip = `${GROUP_NAMES[x.id]}: ${uah(g[x.id])} (${fmtL.format(share)}% фрахту)`;
+      return `<div class="seg" data-w="${(g[x.id] / whole) * 100}" style="width:${(g[x.id] / whole) * 100}%;background:${VIZ[x.id]};color:${inkOn(VIZ[x.id])}" title="${tip}" aria-label="${tip}" tabindex="0"
+          ${x.key ? `data-kpi="${x.key}" role="button"` : 'role="img"'}><span>${fmtL.format(share)}%</span></div>`;
+    }).join('');
+    $('#structBar').setAttribute('aria-label', 'Куди йде фрахт: ' + parts.map((x) => `${GROUP_NAMES[x.id]} ${fmtL.format(pct(g[x.id]))}%`).join(', '));
+    $('#structLoss').innerHTML = g.owner < 0
+      ? `<i data-lucide="alert-circle" class="h-4 w-4"></i><span>Збиток ${uah(-g.owner)}: витрати й зарплати перевищили фрахт</span>`
+      : '';
+    $('#structLoss').classList.toggle('hidden', g.owner >= 0);
+    $('#structLegend').innerHTML = groups.map((x) => `<span class="lg-item"><i class="lg-sw" style="background:${VIZ[x.id]}"></i>${GROUP_NAMES[x.id]}</span>`).join('');
+
+    // Список по групах
+    $('#structure').innerHTML = groups.map((x) => {
+      const head = `
+        <div class="sg-head ${x.key ? 'struct-row' : ''}" ${x.key ? `data-kpi="${x.key}" role="button" tabindex="0" title="Як рахується"` : ''}>
+          <span class="flex min-w-0 items-center gap-2"><i class="lg-sw" style="background:${VIZ[x.id]}"></i><span class="truncate">${GROUP_NAMES[x.id]}</span></span>
+          <span class="num shrink-0 font-semibold ${g[x.id] < 0 ? 'text-loss' : 'text-white'}">${uah(g[x.id])}<span class="ml-1.5 text-xs font-normal text-slate-500">${fmtL.format(pct(g[x.id]))}%</span></span>
         </div>`;
+      const items = x.items.map((r) => `
+        <div class="sg-item struct-row" data-kpi="${r.key}" role="button" tabindex="0" title="Як рахується">
+          <div class="flex items-center justify-between gap-3 text-sm">
+            <span class="text-slate-300">${r.label}</span>
+            <span class="num text-slate-200">${uah(r.v)}<span class="ml-1.5 inline-block w-11 text-right text-xs text-slate-500">${fmtL.format(pct(r.v))}%</span></span>
+          </div>
+          <div class="bar"><i style="width:${Math.max(0, Math.min(100, pct(r.v)))}%;background:${VIZ[x.id]}"></i></div>
+        </div>`).join('');
+      return `<div class="sg">${head}${items}</div>`;
     }).join('');
 
     const pays = [
-      { label: 'Готівка', v: s.cash, icon: 'banknote', c: 'text-emerald-400' },
-      { label: 'Безнал', v: s.bank, icon: 'landmark', c: 'text-sky-400' },
-      { label: 'Карта', v: s.card, icon: 'credit-card', c: 'text-violet-400' },
-      ...(s.dispatch ? [{ label: 'Диспетчерські', v: -s.dispatch, icon: 'hand-coins', c: 'text-orange-400' }] : []),
+      { label: 'Готівка', v: s.cash, icon: 'banknote' },
+      { label: 'Безнал', v: s.bank, icon: 'landmark' },
+      { label: 'Карта', v: s.card, icon: 'credit-card' },
+      ...(s.dispatch ? [{ label: 'Диспетчерські', v: -s.dispatch, icon: 'hand-coins' }] : []),
     ];
     $('#payments').innerHTML = pays.map((p) => `
       <div class="flex items-center justify-between text-sm">
-        <span class="flex items-center gap-2 text-slate-400"><i data-lucide="${p.icon}" class="h-4 w-4 ${p.c}"></i>${p.label}</span>
-        <span class="num font-semibold ${p.v < 0 ? 'text-orange-300' : 'text-white'}">${p.v < 0 ? '− ' + uah(-p.v) : uah(p.v)}</span>
+        <span class="flex items-center gap-2 text-slate-400"><i data-lucide="${p.icon}" class="h-4 w-4 text-slate-400"></i>${p.label}</span>
+        <span class="num font-semibold text-white">${p.v < 0 ? '− ' + uah(-p.v) : uah(p.v)}</span>
       </div>`).join('');
+    requestAnimationFrame(fitSegLabels);
   }
 
-  // ---------- Графік ----------
-  function renderChart(list) {
+  /** Підпис усередині сегмента — лише якщо він повністю влазить. */
+  function fitSegLabels() {
+    // Ширину беремо «кінцеву» (data-w), бо смужки можуть ще рости в анімації
+    const barW = $('#structBar').clientWidth;
+    $$('#structBar .seg').forEach((seg) => {
+      const label = seg.firstElementChild;
+      if (!label) return;
+      const w = (parseFloat(seg.dataset.w) / 100) * barW;
+      label.style.visibility = !barW || label.scrollWidth + 16 > w ? 'hidden' : '';
+    });
+  }
+  let fitTimer = 0;
+  window.addEventListener('resize', () => { clearTimeout(fitTimer); fitTimer = setTimeout(fitSegLabels, 150); });
+
+  // ---------- Графік: куди пішов фрахт по місяцях ----------
+  // Підпис суми «ваш прибуток» над кожним стовпчиком
+  const capLabels = {
+    id: 'capLabels',
+    afterDatasetsDraw(c) {
+      const meta = c.getDatasetMeta(0);
+      if (!meta.data.length) return;
+      const slot = c.chartArea.width / meta.data.length;
+      if (slot < 36) return;
+      const { ctx } = c;
+      const y = c.scales.y;
+      ctx.save();
+      ctx.font = '600 11px Onest, system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'bottom';
+      meta.data.forEach((bar, i) => {
+        const vals = c.data.datasets.map((d) => d.data[i] || 0);
+        const top = vals.reduce((a, v) => a + Math.max(0, v), 0);
+        const owner = vals[3];
+        ctx.fillStyle = owner < 0 ? VIZ.loss : (c.$sel && !c.$sel[i] ? VIZ.muted : VIZ.text2);
+        ctx.fillText(shortMoney(owner), bar.x, y.getPixelForValue(top) - 6);
+      });
+      ctx.restore();
+    },
+  };
+
+  function renderChart() {
     const canvas = $('#monthlyChart');
     const empty = $('#chartEmpty');
     if (!window.Chart) { empty.textContent = 'Графік недоступний (немає інтернету)'; empty.style.display = 'grid'; return; }
 
-    const groups = new Map();
-    for (const t of list) {
-      const key = (t.startDate || '').slice(0, 7);
-      if (!key) continue;
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key).push(t);
-    }
-    const keys = Array.from(groups.keys()).sort().slice(-12);
+    const trend = monthTrend();
+    const { keys, sums, sel } = trend;
     empty.style.display = keys.length ? 'none' : 'grid';
+    const G = sums.map(moneyGroups);
+    const anySel = filter.year !== 'all' || filter.month !== 'all';
+    const dim = (hex, i) => (anySel && !sel[i] ? hex + '59' : hex); // невибрані місяці — блідіші
 
-    const sums = keys.map((k) => summarize(groups.get(k), settings));
-    const labels = keys.map((k) => { const [y, m] = k.split('-'); return `${MONTHS_SHORT[+m - 1]} ${y.slice(2)}`; });
-
+    const ds = (id, extra = {}) => ({
+      label: GROUP_NAMES[id], data: G.map((x) => x[id]), stack: 'f',
+      backgroundColor: (ctx) => {
+        const v = ctx.raw;
+        return dim(id === 'owner' && v < 0 ? VIZ.loss : VIZ[id], ctx.dataIndex);
+      },
+      borderColor: VIZ.surface, borderSkipped: false, maxBarThickness: 24, categoryPercentage: .7, barPercentage: .9,
+      ...extra,
+    });
     const data = {
-      labels,
+      labels: keys.map((k) => monthLabel(k)),
       datasets: [
-        { type: 'bar', label: 'Фрахт', data: sums.map((s) => s.freight), backgroundColor: 'rgba(99,102,241,.75)', borderRadius: 8, maxBarThickness: 34, order: 2 },
-        { type: 'bar', label: 'Витрати', data: sums.map((s) => s.totalExpenses), backgroundColor: 'rgba(244,63,94,.55)', borderRadius: 8, maxBarThickness: 34, order: 3 },
-        { type: 'line', label: 'Чистий прибуток', data: sums.map((s) => s.netProfit), borderColor: '#10b981', backgroundColor: 'rgba(16,185,129,.15)', pointBackgroundColor: '#10b981', pointRadius: 4, tension: .35, fill: true, order: 1 },
-        { type: 'line', label: 'Ваш прибуток', data: sums.map((s) => s.ownerProfit), borderColor: '#a3e635', borderDash: [5, 4], pointBackgroundColor: '#a3e635', pointRadius: 3, tension: .35, fill: false, order: 0 },
+        ds('trip', { borderWidth: 0, borderRadius: 0 }),
+        ds('pay', { borderWidth: { bottom: 2 }, borderRadius: 0 }),
+        ds('partner', { borderWidth: { bottom: 2 }, borderRadius: 0 }),
+        ds('owner', {
+          borderWidth: (ctx) => (ctx.raw < 0 ? { top: 2 } : { bottom: 2 }),
+          borderRadius: (ctx) => (ctx.raw < 0 ? { bottomLeft: 4, bottomRight: 4 } : { topLeft: 4, topRight: 4 }),
+        }),
       ],
     };
 
-    if (chart) { chart.data = data; chart.update(); return; }
+    renderChartTable(keys, sums, G);
 
-    Chart.defaults.color = '#94a3b8';
-    Chart.defaults.font.family = 'Inter, system-ui, sans-serif';
+    if (chart) { chart.$sel = sel; chart.$keys = keys; chart.$sums = sums; chart.data = data; chart.update(); return; }
+
+    Chart.defaults.color = VIZ.muted;
+    Chart.defaults.font.family = 'Onest, system-ui, sans-serif';
     chart = new Chart(canvas, {
+      type: 'bar',
       data,
+      plugins: [capLabels],
       options: {
         responsive: true,
         maintainAspectRatio: false,
+        layout: { padding: { top: 22 } },
         interaction: { mode: 'index', intersect: false },
+        onClick: (evt, els, c) => {
+          const hit = c.getElementsAtEventForMode(evt, 'index', { intersect: false }, false)[0];
+          if (!hit) return;
+          const [yy, mm] = c.$keys[hit.index].split('-');
+          if (filter.year === yy && filter.month === mm) { filter.year = 'all'; filter.month = 'all'; }
+          else { filter.year = yy; filter.month = mm; }
+          renderAll();
+        },
+        onHover: (evt, els, c) => { c.canvas.style.cursor = c.getElementsAtEventForMode(evt, 'index', { intersect: false }, false).length ? 'pointer' : 'default'; },
         plugins: {
-          legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, padding: 16 } },
+          legend: { display: false },
           tooltip: {
-            backgroundColor: '#0d1328', borderColor: 'rgba(255,255,255,.1)', borderWidth: 1, padding: 12,
-            callbacks: { label: (ctx) => ` ${ctx.dataset.label}: ${uah(ctx.parsed.y)}` },
+            backgroundColor: '#2a313a', borderColor: 'rgba(242,240,234,.14)', borderWidth: 1, padding: 12,
+            titleColor: '#f2f0ea', bodyColor: '#dcdbd5', footerColor: '#f2f0ea',
+            titleFont: { weight: '600' }, footerFont: { weight: '600' }, boxPadding: 4, usePointStyle: true,
+            itemSort: (a, b) => b.datasetIndex - a.datasetIndex,
+            callbacks: {
+              title: (items) => monthLabel(chart.$keys[items[0].dataIndex], true),
+              label: (ctx) => ` ${ctx.dataset.label}: ${uah(ctx.parsed.y)}`,
+              labelColor: (ctx) => { const col = ctx.raw < 0 && ctx.datasetIndex === 3 ? VIZ.loss : VIZ[['trip', 'pay', 'partner', 'owner'][ctx.datasetIndex]]; return { borderColor: col, backgroundColor: col }; },
+              footer: (items) => `Фрахт: ${uah(chart.$sums[items[0].dataIndex].freight)}\nНатисніть, щоб вибрати місяць`,
+            },
           },
         },
         scales: {
-          x: { grid: { display: false }, border: { display: false } },
+          x: { stacked: true, grid: { display: false }, border: { display: false }, ticks: { color: VIZ.muted, maxRotation: 0, autoSkipPadding: 6 } },
           y: {
-            grid: { color: 'rgba(255,255,255,.05)' }, border: { display: false },
-            ticks: { callback: (v) => (Math.abs(v) >= 1000 ? fmtL.format(v / 1000) + 'к' : v) },
+            stacked: true,
+            grid: { color: 'rgba(242,240,234,.07)', lineWidth: 1 }, border: { display: false },
+            ticks: { color: VIZ.muted, maxTicksLimit: 6, callback: (v) => (Math.abs(v) >= 1000 ? fmtL.format(v / 1000) + 'к' : v) },
           },
         },
       },
     });
+    chart.$sel = sel; chart.$keys = keys; chart.$sums = sums;
+    chart.update('none');
+  }
+
+  /** Таблиця — те саме, що й графік, для точних цифр. */
+  function renderChartTable(keys, sums, G) {
+    $('#chartTable').innerHTML = keys.length ? `
+      <table class="w-full text-sm">
+        <thead><tr class="text-left text-xs text-slate-400">
+          <th class="py-2 pr-3 font-medium">Місяць</th><th class="py-2 pr-3 text-right font-medium">Фрахт</th>
+          ${['trip', 'pay', 'partner', 'owner'].map((id) => `<th class="py-2 pr-3 text-right font-medium"><i class="lg-sw mr-1.5" style="background:${VIZ[id]}"></i>${GROUP_NAMES[id]}</th>`).join('')}
+        </tr></thead>
+        <tbody class="divide-y divide-white/5">
+          ${keys.map((k, i) => `<tr>
+            <td class="py-2 pr-3 text-slate-300">${monthLabel(k, true)}</td>
+            <td class="num py-2 pr-3 text-right text-white">${uah(sums[i].freight)}</td>
+            ${['trip', 'pay', 'partner', 'owner'].map((id) => `<td class="num py-2 pr-3 text-right ${G[i][id] < 0 ? 'text-loss' : 'text-slate-200'}">${uah(G[i][id])}</td>`).join('')}
+          </tr>`).join('')}
+        </tbody>
+      </table>` : '<p class="py-6 text-center text-sm text-slate-500">Немає даних</p>';
   }
 
   // ---------- Список рейсів ----------
@@ -442,6 +626,7 @@
     renderRecent(list);
     renderTrips(list, s);
     if (!$('#viewModal').classList.contains('hidden')) renderTripView();
+    if (!$('#kpiModal').classList.contains('hidden')) renderKpiInfo();
     refreshIcons();
   }
 
@@ -457,7 +642,7 @@
     $$('[data-tab]').forEach((el) => el.classList.toggle('active', el.dataset.tab === v));
     $('#viewTitle').textContent = v === 'trips' ? 'Рейси' : 'Фінансова панель';
     document.title = (v === 'trips' ? 'Рейси' : 'Облік рейсів') + ' — вантажні перевезення';
-    if (v === 'dashboard' && chart) setTimeout(() => chart.resize(), 0);
+    if (v === 'dashboard') setTimeout(() => { if (chart) chart.resize(); fitSegLabels(); }, 0);
     window.scrollTo(0, 0);
   }
   window.addEventListener('hashchange', applyView);
@@ -480,7 +665,7 @@
     const c = calcTrip(t, settings);
     const { plate, brand } = tripPlate(t);
     $('#viewTitleTrip').innerHTML = plate
-      ? `<span class="plate !text-xl">${escapeHtml(plate)}${brand ? `<span class="plate-brand !text-sm">${escapeHtml(brand)}</span>` : ''}</span>`
+      ? `<span class="plate-line plate-lg">${plateHtml(plate)}${brand ? `<span class="plate-brand">${escapeHtml(brand)}</span>` : ''}</span>`
       : escapeHtml(tripDates(t));
     $('#viewSubtitle').textContent = (plate ? tripDates(t) + ' · ' : '') + (t.route || 'Без маршруту');
 
@@ -1049,6 +1234,303 @@
     toast('Додано 6 демо-рейсів');
   }
 
+  // ---------- Пояснення показників (клік по блоку панелі) ----------
+  let kpiOpenKey = null;
+  const pctF = (n) => fmtL.format(n) + '%';
+
+  /** Однакова ставка в усіх рейсах — повертає її, інакше null. */
+  function sameRate(cs, key) {
+    if (!cs.length) return num(settings[key]);
+    const v = cs[0].c.rates[key];
+    return cs.every((x) => x.c.rates[key] === v) ? v : null;
+  }
+
+  /** Опис кожного показника: що це, рядки розрахунку, примітки, значення по рейсах. */
+  function kpiInfo(key, s, cs) {
+    const posSum = (f) => cs.reduce((a, x) => a + Math.max(0, f(x.c)), 0);
+    const rateRow = (op, label, rk, hint, money) => {
+      const r = sameRate(cs, rk);
+      return { op, label, hint, value: r === null ? 'різна в рейсах' : money ? uah(r) + ' / доба' : pctF(r) };
+    };
+    const monthlyRow = {
+      op: '−', label: 'Щомісячні витрати', value: s.monthlyExpenses, kpi: 'monthly',
+      hint: s.monthlyRate ? `${uah(s.monthlyRate)} × ${s.months} ${plural(s.months, 'місяць', 'місяці', 'місяців')}` : 'не задані в «Ставках»',
+    };
+    const I = {
+      net: {
+        title: 'Чистий прибуток бізнесу', icon: 'trending-up', total: s.netProfit,
+        what: 'Скільки заробив бізнес після палива, податку, СТО, ремонту і всіх зарплат — але до виплати компаньйону.',
+        rows: [
+          { label: 'Прибуток авто', hint: 'фрахт мінус паливо (ціна для водія), добові, ремонт, інші', value: s.carProfit, kpi: 'carProfit' },
+          { op: '+', label: 'Знижка на паливо', hint: 'різниця між ціною для водія і фактичною', value: s.fuelDiscount, kpi: 'fuel' },
+          { op: '−', label: 'Податок', hint: 'від безналу', value: s.tax, kpi: 'tax' },
+          { op: '−', label: 'СТО', hint: 'за кожну добу в рейсі', value: s.sto, kpi: 'sto' },
+          { op: '−', label: 'ЗП водія', value: s.driverPay, kpi: 'driverPay' },
+          { op: '−', label: 'ЗП логіста', value: s.logistPay, kpi: 'logistPay' },
+          monthlyRow,
+        ],
+        notes: [
+          s.freight > 0 ? `Рентабельність ${pctF((s.netProfit / s.freight) * 100)} — стільки з кожної гривні фрахту лишається бізнесу.` : null,
+          'Щомісячні витрати віднімаються лише в сумі за період, тому в списку рейсів нижче їх немає.',
+        ],
+        perTrip: (c) => c.netProfit,
+      },
+      partner: {
+        title: 'Компаньйону', icon: 'handshake', total: s.partnerShare,
+        what: 'Частка компаньйона — відсоток від чистого прибутку кожного рейсу.',
+        rows: [
+          { label: 'Чистий прибуток прибуткових рейсів', hint: 'збиткові рейси не враховуються', value: posSum((c) => c.netProfit) },
+          rateRow('×', 'Ставка компаньйона', 'partnerRate', 'змінюється в «Ставках»'),
+        ],
+        notes: ['Якщо рейс збитковий, компаньйону з нього 0 ₴.', 'Щомісячні витрати на частку компаньйона не впливають — їх покриває ваш прибуток.'],
+        perTrip: (c) => c.partnerShare,
+      },
+      owner: {
+        title: 'Ваш прибуток', icon: 'piggy-bank', total: s.ownerProfit,
+        what: 'Що лишається вам: чистий прибуток бізнесу після виплати компаньйону.',
+        rows: [
+          { label: 'Чистий прибуток бізнесу', hint: s.monthlyExpenses ? 'уже з урахуванням щомісячних витрат' : null, value: s.netProfit, kpi: 'net' },
+          { op: '−', label: 'Компаньйону', value: s.partnerShare, kpi: 'partner' },
+        ],
+        notes: s.freight > 0 ? [`З кожної гривні фрахту вам лишається ${fmtDec.format(s.ownerProfit / s.freight)} ₴.`] : [],
+        perTrip: (c) => c.ownerProfit,
+      },
+      freight: {
+        title: 'Сума фрахту', icon: 'wallet', total: s.freight,
+        what: 'Скільки реально заробили рейси: усі гроші від замовників мінус диспетчерські посереднику.',
+        rows: [
+          { label: 'Готівка', hint: 'поле «Готівка» у рейсі', value: s.cash },
+          { op: '+', label: 'Безнал', hint: 'поле «Безнал» — з нього рахується податок', value: s.bank, kpi: 'tax' },
+          { op: '+', label: 'Карта', hint: 'поле «Карта»', value: s.card },
+          { op: '−', label: 'Диспетчерські', hint: 'віддали посереднику за замовлення', value: s.dispatch },
+        ],
+        notes: [`Усього отримано ${uah(s.received)} за ${s.count} ${plural(s.count, 'рейс', 'рейси', 'рейсів')}.`, 'Від фрахту рахуються ЗП логіста, ЗП водія і весь прибуток.'],
+        perTrip: (c) => c.freight,
+      },
+      driverPay: {
+        title: 'ЗП водія', icon: 'user-round', total: s.driverPay,
+        what: 'Зарплата водія — відсоток від прибутку авто кожного рейсу.',
+        rows: [
+          { label: 'Прибуток авто прибуткових рейсів', hint: 'збиткові рейси не враховуються', value: posSum((c) => c.carProfit), kpi: 'carProfit' },
+          rateRow('×', 'Ставка водія', 'driverRate'),
+        ],
+        notes: [`Добові (${uah(s.perDiem)}) платяться окремо і в цю суму не входять.`, 'Паливо для ЗП рахується за ціною для водія, а не фактичною.', 'СТО і податок на ЗП водія не впливають.'],
+        perTrip: (c) => c.driverPay,
+      },
+      logistPay: {
+        title: 'ЗП логіста', icon: 'headset', total: s.logistPay,
+        what: 'Зарплата логіста — відсоток від суми фрахту.',
+        rows: [
+          { label: 'Фрахт', value: s.freight, kpi: 'freight' },
+          rateRow('×', 'Ставка логіста', 'logistRate'),
+        ],
+        notes: ['На ЗП водія не впливає. Віднімається з чистого прибутку бізнесу.'],
+        perTrip: (c) => c.logistPay,
+      },
+      monthly: {
+        title: 'Щомісячні витрати', icon: 'calendar-check', total: s.monthlyExpenses,
+        what: 'Постійні витрати бізнесу (бухгалтер, страховка тощо), які ви вказали в «Ставках».',
+        rows: [
+          { label: 'Сума на місяць', hint: 'поле в «Ставках»', value: s.monthlyRate },
+          { op: '×', label: 'Місяців з рейсами', hint: 'місяць рахується за датою початку рейсу', value: `${s.months}` },
+        ],
+        notes: ['Віднімаються від чистого прибутку бізнесу і вашого прибутку. На частку компаньйона не впливають.'],
+        perTrip: null,
+      },
+      pricePerKm: {
+        title: 'Ціна за 1 км', icon: 'route', total: uah2(s.pricePerKm),
+        what: 'Скільки фрахту приносить кожен кілометр пробігу.',
+        rows: [
+          { label: 'Фрахт', value: s.freight, kpi: 'freight' },
+          { op: '÷', label: 'Пробіг', hint: 'кінцевий одометр мінус початковий', value: `${fmtInt.format(s.km)} км` },
+        ],
+        notes: [],
+        perTrip: (c) => uah2(c.pricePerKm), sortBy: (c) => c.pricePerKm,
+      },
+      fuel: {
+        title: 'Паливо (фактично)', icon: 'fuel', total: s.fuelCost,
+        what: 'Скільки бізнес реально заплатив за паливо — за ціною зі знижкою.',
+        rows: [
+          { label: 'Літрів за всі рейси', hint: 'поле «Витрата палива»', value: `${fmtL.format(s.fuelLiters)} л` },
+          { op: '×', label: 'Середня фактична ціна', hint: 'поле «Фактична ціна» (порожнє = ціна для водія); округлено до копійки', value: s.fuelLiters ? '≈ ' + uah2(s.fuelCost / s.fuelLiters) + ' / л' : '—' },
+        ],
+        notes: [
+          `За ціною для водія вийшло б ${uah(s.fuelCostDriver)}. Різниця ${uah(s.fuelDiscount)} — ваша економія, вона додається до чистого прибутку.`,
+          s.km > 0 ? `Середня витрата ${fmtL.format(s.fuelPer100)} л на 100 км.` : null,
+        ],
+        perTrip: (c) => c.fuelCost,
+      },
+      sto: {
+        title: 'СТО', icon: 'hammer', total: s.sto,
+        what: 'Гроші, які відкладаються на обслуговування авто за кожну добу в рейсі.',
+        rows: [
+          { label: 'Діб у рейсах', value: `${fmtInt.format(s.days)}`, kpi: 'days' },
+          rateRow('×', 'Ставка СТО', 'stoRate', null, true),
+        ],
+        notes: ['Віднімається з чистого прибутку бізнесу. На ЗП водія не впливає.'],
+        perTrip: (c) => c.sto,
+      },
+      repair: {
+        title: 'Ремонт', icon: 'wrench', total: s.repair,
+        what: 'Фактичні витрати на ремонт, які ви вписали в рейси.',
+        rows: [{ label: 'Сума поля «Витрати на ремонт»', hint: 'з усіх рейсів за період', value: s.repair }],
+        notes: [s.km > 0 ? `Це ${fmtDec.format(s.repair / s.km)} ₴ на кожен кілометр.` : null, 'Ремонт зменшує прибуток авто, тож трохи зменшує і ЗП водія.'],
+        perTrip: (c) => c.repair,
+      },
+      tax: {
+        title: 'Податок', icon: 'landmark', total: s.tax,
+        what: 'Податок платиться лише з безготівкових надходжень.',
+        rows: [
+          { label: 'Безнал', hint: 'поле «Безнал» у рейсах', value: s.bank },
+          rateRow('×', 'Ставка податку', 'taxRate'),
+        ],
+        notes: ['Готівка і карта податком не обкладаються.', 'Податок віднімається з чистого прибутку бізнесу, на ЗП водія не впливає.'],
+        perTrip: (c) => c.tax,
+      },
+      days: {
+        title: 'Діб у рейсах', icon: 'calendar-clock', total: `${fmtInt.format(s.days)} ${plural(s.days, 'доба', 'доби', 'діб')}`,
+        what: 'Скільки діб авто було в дорозі за період.',
+        rows: [{ label: 'Сума діб по рейсах', hint: 'дата кінця мінус дата початку; рейс в один день = 1 доба', value: `${fmtInt.format(s.days)}` }],
+        notes: [`З діб рахуються добові водія (${uah(s.perDiem)}) і СТО (${uah(s.sto)}).`],
+        perTrip: (c) => `${c.days} ${plural(c.days, 'доба', 'доби', 'діб')}`, sortBy: (c) => c.days,
+      },
+      perDiem: {
+        title: 'Добові', icon: 'calendar-clock', total: s.perDiem,
+        what: 'Добові водія — фіксована сума за кожну добу в рейсі, окремо від ЗП.',
+        rows: [
+          { label: 'Діб у рейсах', value: `${fmtInt.format(s.days)}`, kpi: 'days' },
+          rateRow('×', 'Добові', 'perDiem', null, true),
+        ],
+        notes: ['Добові зменшують прибуток авто, з якого рахується ЗП водія.'],
+        perTrip: (c) => c.perDiem,
+      },
+      other: {
+        title: 'Інші витрати', icon: 'receipt', total: s.other,
+        what: 'Дороги, стоянки та інші дрібні витрати в рейсах.',
+        rows: [{ label: 'Сума поля «Інші витрати»', hint: 'з усіх рейсів за період', value: s.other }],
+        notes: ['Зменшують прибуток авто, а отже і ЗП водія.'],
+        perTrip: (c) => c.other,
+      },
+      carProfit: {
+        title: 'Прибуток авто', icon: 'truck', total: s.carProfit,
+        what: 'Скільки заробило авто до зарплат, податку і СТО. З цієї суми рахується ЗП водія.',
+        rows: [
+          { label: 'Фрахт', value: s.freight, kpi: 'freight' },
+          { op: '−', label: 'Паливо за ціною для водія', hint: 'літри × ціна для водія', value: s.fuelCostDriver, kpi: 'fuel' },
+          { op: '−', label: 'Добові', value: s.perDiem, kpi: 'perDiem' },
+          { op: '−', label: 'Інші витрати', value: s.other, kpi: 'other' },
+          { op: '−', label: 'Ремонт', value: s.repair, kpi: 'repair' },
+        ],
+        notes: ['СТО і податок тут не віднімаються — щоб не зменшувати ЗП водія.'],
+        perTrip: (c) => c.carProfit,
+      },
+      totalExpenses: {
+        title: 'Усі витрати', icon: 'receipt', total: s.totalExpenses,
+        what: 'Усе, що пішло з фрахту, крім частки компаньйона і вашого прибутку.',
+        rows: [
+          { label: 'Паливо (фактично)', value: s.fuelCost, kpi: 'fuel' },
+          { op: '+', label: 'Податок', value: s.tax, kpi: 'tax' },
+          { op: '+', label: 'Добові', value: s.perDiem, kpi: 'perDiem' },
+          { op: '+', label: 'СТО', value: s.sto, kpi: 'sto' },
+          { op: '+', label: 'Ремонт', value: s.repair, kpi: 'repair' },
+          { op: '+', label: 'Інші витрати', value: s.other, kpi: 'other' },
+          { op: '+', label: 'ЗП водія', value: s.driverPay, kpi: 'driverPay' },
+          { op: '+', label: 'ЗП логіста', value: s.logistPay, kpi: 'logistPay' },
+          Object.assign({}, monthlyRow, { op: '+' }),
+        ],
+        notes: ['Частка компаньйона сюди не входить — це розподіл прибутку, а не витрата.'],
+        perTrip: (c) => c.totalExpenses,
+      },
+    };
+    return I[key] || null;
+  }
+
+  function renderKpiInfo() {
+    const key = kpiOpenKey;
+    const list = filteredTrips();
+    const s = summarize(list, settings);
+    const cs = list.map((t) => ({ t, c: calcTrip(t, settings) }));
+    const info = kpiInfo(key, s, cs);
+    if (!info) return;
+    const money = (v) => (typeof v === 'number' ? uah(v) : escapeHtml(v));
+    const isNeg = (v) => typeof v === 'number' && v < 0;
+    const totalTxt = money(info.total);
+
+    $('#kpiTitle').textContent = info.title;
+    $('#kpiPeriod').textContent = $('#periodLabel').textContent;
+    $('#kpiIcon').innerHTML = `<i data-lucide="${info.icon}" class="h-5 w-5"></i>`;
+
+    const rows = info.rows.map((r, i) => {
+      const label = r.kpi && r.kpi !== key
+        ? `<button type="button" class="kx-link" data-kpi="${r.kpi}" title="Як рахується «${escapeHtml(r.label)}»">${escapeHtml(r.label)}<i data-lucide="chevron-right" class="h-3.5 w-3.5"></i></button>`
+        : `<span>${escapeHtml(r.label)}</span>`;
+      return `<div class="kx-row" style="--i:${i}">
+          <span class="kx-op">${r.op || ''}</span>
+          <span class="kx-label">${label}${r.hint ? `<small>${escapeHtml(r.hint)}</small>` : ''}</span>
+          <span class="kx-val num ${isNeg(r.value) ? 'text-loss' : ''}">${money(r.value)}</span>
+        </div>`;
+    }).join('');
+
+    const notes = (info.notes || []).filter(Boolean);
+    let tripsHtml = '';
+    if (info.perTrip && cs.length) {
+      const sortVal = info.sortBy || info.perTrip;
+      const items = cs.slice().sort((a, b) => sortVal(b.c) - sortVal(a.c)).slice(0, 50);
+      tripsHtml = `
+        <section class="mt-7">
+          <h4 class="kx-h">З яких рейсів складається <span class="font-normal text-slate-500">${cs.length}</span></h4>
+          <div class="kx-trips">${items.map(({ t, c }) => {
+            const v = info.perTrip(c);
+            return `<button type="button" class="kx-trip" data-open="${escapeHtml(t.id)}">
+                <span class="min-w-0">${tripHeading(t)}<span class="mt-1 block truncate text-xs text-slate-500">${escapeHtml(tripDates(t))} · ${escapeHtml(t.route || 'Без маршруту')}</span></span>
+                <span class="num shrink-0 font-semibold ${isNeg(v) ? 'text-loss' : 'text-white'}">${money(v)}</span>
+              </button>`;
+          }).join('')}</div>
+          ${cs.length > 50 ? '<p class="mt-2 text-xs text-slate-500">Показано 50 найбільших.</p>' : ''}
+        </section>`;
+    }
+
+    $('#kpiBody').innerHTML = `
+      <div class="kx-hero">
+        <div class="kx-total num ${isNeg(info.total) ? 'text-loss' : ''}">${totalTxt}</div>
+        <p class="kx-what">${escapeHtml(info.what)}</p>
+      </div>
+      <section class="mt-6">
+        <h4 class="kx-h">Як рахується</h4>
+        <div class="kx-calc">
+          ${rows}
+          <div class="kx-row kx-result" style="--i:${info.rows.length}">
+            <span class="kx-op">=</span>
+            <span class="kx-label"><span>${escapeHtml(info.title)}</span></span>
+            <span class="kx-val num ${isNeg(info.total) ? 'text-loss' : ''}">${totalTxt}</span>
+          </div>
+        </div>
+      </section>
+      ${notes.length ? `<ul class="kx-notes">${notes.map((n) => `<li>${escapeHtml(n)}</li>`).join('')}</ul>` : ''}
+      ${!cs.length ? '<p class="mt-6 text-sm text-slate-500">За вибраний період рейсів немає — змініть фільтр угорі.</p>' : ''}
+      ${tripsHtml}`;
+    $('#kpiBody').scrollTop = 0;
+    refreshIcons();
+  }
+
+  function openKpiInfo(key) {
+    kpiOpenKey = key;
+    renderKpiInfo();
+    openModal($('#kpiModal'));
+  }
+
+  $('#chartViewBtn').addEventListener('click', (e) => {
+    const btn = e.currentTarget;
+    const table = btn.getAttribute('aria-pressed') !== 'true';
+    btn.setAttribute('aria-pressed', String(table));
+    btn.querySelector('span').textContent = table ? 'Графік' : 'Таблиця';
+    btn.querySelector('i, .ic').outerHTML = `<i data-lucide="${table ? 'bar-chart-3' : 'list'}" class="h-4 w-4"></i>`;
+    $('#chartBox').classList.toggle('hidden', table);
+    $('#chartLegend').classList.toggle('hidden', table);
+    $('#chartTable').classList.toggle('hidden', !table);
+    refreshIcons();
+  });
+
   // ---------- Події ----------
   $('#addTripBtn').addEventListener('click', () => openTripForm());
 
@@ -1070,6 +1552,7 @@
         case 'import-json': $('#importFile').click(); break;
         case 'demo': addDemo(); break;
         case 'refs': openRefs(); break;
+        case 'settings': $('#settingsBtn').click(); break;
         case 'clear':
           if (trips.length && confirm('Видалити ВСІ рейси? Рекомендуємо спершу зробити резервну копію.')) {
             trips = []; saveTrips(); renderAll(); toast('Усі дані видалено', 'info');
@@ -1097,13 +1580,24 @@
       }
       return;
     }
+    // Клік по блоку показника — вікно «як рахується»
+    const kpi = e.target.closest('[data-kpi]');
+    if (kpi) { openKpiInfo(kpi.dataset.kpi); return; }
     // Клік по рядку/картці рейсу — відкрити перегляд
     const open = e.target.closest('[data-open]');
-    if (open) openTripView(open.dataset.open);
+    if (open) {
+      if (open.closest('#kpiModal')) closeModal($('#kpiModal'));
+      openTripView(open.dataset.open);
+    }
   });
 
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') { const open = $$('.modal:not(.hidden)'); if (open.length) closeModal(open[open.length - 1]); }
+    // Enter / пробіл на блоці показника
+    if ((e.key === 'Enter' || e.key === ' ') && e.target.matches && e.target.matches('[role="button"][data-kpi]')) {
+      e.preventDefault();
+      openKpiInfo(e.target.dataset.kpi);
+    }
   });
 
   $('#yearFilter').addEventListener('change', (e) => { filter.year = e.target.value; renderAll(); });
