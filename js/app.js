@@ -480,6 +480,7 @@
   function tripActions(id) {
     return `
       <button class="icon-btn" data-edit="${id}" title="Редагувати"><i data-lucide="pencil" class="h-4 w-4"></i></button>
+      <button class="icon-btn" data-xlsx="${id}" title="Скачати рейс в Excel" aria-label="Скачати рейс в Excel"><i data-lucide="file-spreadsheet" class="h-4 w-4"></i></button>
       <button class="icon-btn" data-copy="${id}" title="Дублювати"><i data-lucide="copy" class="h-4 w-4"></i></button>
       <button class="icon-btn danger" data-del="${id}" title="Видалити"><i data-lucide="trash-2" class="h-4 w-4"></i></button>`;
   }
@@ -734,6 +735,7 @@
     returnToView = true;
     openTripForm(id);
   });
+  $('#viewXlsx').addEventListener('click', () => exportTripXlsx(viewingId));
   $('#viewCopy').addEventListener('click', () => {
     const id = viewingId;
     closeModal($('#viewModal'));
@@ -1153,21 +1155,256 @@
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
 
-  function exportCSV() {
+  // Колонки експорту рейсів (спільні для Excel і CSV).
+  // fmt: date | text | int | dec (2 знаки) | money (гроші, 2 знаки); sum — підсумовувати в рядку «Разом».
+  const EXPORT_COLS = [
+    { h: 'Дата початку', v: (t) => t.startDate, fmt: 'date', w: 12 },
+    { h: 'Дата кінця', v: (t) => t.endDate, fmt: 'date', w: 12 },
+    { h: 'Водій', v: (t) => tripDriver(t), fmt: 'text', w: 18 },
+    { h: 'Авто', v: (t) => tripCar(t), fmt: 'text', w: 20 },
+    { h: 'Маршрут', v: (t) => t.route, fmt: 'text', w: 28 },
+    { h: 'Одометр поч.', v: (t) => num(t.odoStart), fmt: 'int', w: 12 },
+    { h: 'Одометр кін.', v: (t) => num(t.odoEnd), fmt: 'int', w: 12 },
+    { h: 'Км', v: (t, c) => c.km, fmt: 'int', sum: true, w: 9 },
+    { h: 'Діб', v: (t, c) => c.days, fmt: 'int', sum: true, w: 6 },
+    { h: 'Паливо, л', v: (t, c) => c.fuelLiters, fmt: 'dec', sum: true, w: 10 },
+    { h: 'Ціна палива для водія', v: (t, c) => c.fuelPrice, fmt: 'money', w: 12 },
+    { h: 'Фактична ціна палива', v: (t, c) => c.fuelPriceActual, fmt: 'money', w: 12 },
+    { h: 'Паливо для водія, грн', v: (t, c) => c.fuelCostDriver, fmt: 'money', sum: true, w: 13 },
+    { h: 'Паливо фактично, грн', v: (t, c) => c.fuelCost, fmt: 'money', sum: true, w: 13 },
+    { h: 'Знижка на паливо', v: (t, c) => c.fuelDiscount, fmt: 'money', sum: true, w: 12 },
+    { h: 'Готівка', v: (t, c) => c.cash, fmt: 'money', sum: true, w: 12 },
+    { h: 'Безнал', v: (t, c) => c.bank, fmt: 'money', sum: true, w: 12 },
+    { h: 'Карта', v: (t, c) => c.card, fmt: 'money', sum: true, w: 12 },
+    { h: 'Диспетчерські', v: (t, c) => c.dispatch, fmt: 'money', sum: true, w: 12 },
+    { h: 'Фрахт (без диспетчерських)', v: (t, c) => c.freight, fmt: 'money', sum: true, w: 14 },
+    { h: 'Грн/км', v: (t, c) => c.pricePerKm, fmt: 'dec', w: 8 },
+    { h: 'Податок', v: (t, c) => c.tax, fmt: 'money', sum: true, w: 11 },
+    { h: 'Добові', v: (t, c) => c.perDiem, fmt: 'money', sum: true, w: 11 },
+    { h: 'СТО', v: (t, c) => c.sto, fmt: 'money', sum: true, w: 11 },
+    { h: 'Ремонт', v: (t, c) => c.repair, fmt: 'money', sum: true, w: 11 },
+    { h: 'Інші витрати', v: (t, c) => c.other, fmt: 'money', sum: true, w: 11 },
+    { h: 'Прибуток авто', v: (t, c) => c.carProfit, fmt: 'money', sum: true, w: 13 },
+    { h: 'ЗП водія', v: (t, c) => c.driverPay, fmt: 'money', sum: true, w: 12 },
+    { h: 'ЗП логіста', v: (t, c) => c.logistPay, fmt: 'money', sum: true, w: 12 },
+    { h: 'Чистий прибуток бізнесу', v: (t, c) => c.netProfit, fmt: 'money', sum: true, w: 14 },
+    { h: 'Компаньйону', v: (t, c) => c.partnerShare, fmt: 'money', sum: true, w: 12 },
+    { h: 'Ваш прибуток', v: (t, c) => c.ownerProfit, fmt: 'money', sum: true, w: 13 },
+    { h: 'Нотатка', v: (t) => t.note, fmt: 'text', w: 30 },
+  ];
+  const XLSX_FMT = { int: '#,##0', dec: '#,##0.00', money: '#,##0.00', date: 'dd.mm.yyyy' };
+  const today = () => new Date().toISOString().slice(0, 10);
+  // Безпечна частина назви файлу: літери, цифри, дефіс
+  const fileSafe = (s) => String(s || '').replace(/[^\p{L}\p{N}-]+/gu, '_').replace(/^_+|_+$/g, '').slice(0, 40);
+  // «2026-03-15» → порядковий номер дати Excel (рахуємо в UTC, щоб часовий пояс не зсував день)
+  const isoToSerial = (iso) => {
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+    return m ? (Date.UTC(+m[1], +m[2] - 1, +m[3]) - Date.UTC(1899, 11, 30)) / 86400000 : null;
+  };
+
+  // Бібліотека SheetJS вантажиться лише при першому експорті (≈280 КБ), з перевіркою цілісності (SRI)
+  const XLSX_SRC = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.mini.min.js';
+  const XLSX_SRI = 'sha384-NG/W3xvO3ynQEcDQYIOcZTXRtwUs83cLv1FIl9PuqWPDuNhsMRF6wutlNLFwlb71';
+  let xlsxLoading = null;
+  function loadXlsx() {
+    if (window.XLSX) return Promise.resolve(window.XLSX);
+    if (!xlsxLoading) {
+      xlsxLoading = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = XLSX_SRC;
+        s.integrity = XLSX_SRI;
+        s.crossOrigin = 'anonymous';
+        s.onload = () => (window.XLSX ? resolve(window.XLSX) : reject(new Error('XLSX')));
+        s.onerror = () => { xlsxLoading = null; s.remove(); reject(new Error('XLSX')); };
+        document.head.appendChild(s);
+      });
+    }
+    return xlsxLoading;
+  }
+
+  /** Клітинка для SheetJS з правильним типом і форматом. */
+  function xCell(value, fmt) {
+    if (fmt === 'date') {
+      const d = isoToSerial(value);
+      return d !== null ? { t: 'n', v: d, z: XLSX_FMT.date } : { t: 's', v: '' };
+    }
+    if (fmt === 'text' || typeof value === 'string') return { t: 's', v: String(value ?? '') };
+    const n = Number(value) || 0;
+    return { t: 'n', v: n, z: XLSX_FMT[fmt] || XLSX_FMT.dec };
+  }
+
+  /** Аркуш «Рейси»: рядок на кожен рейс + «Разом» з формулами SUM. */
+  function tripsSheet(XLSX, list) {
+    const rows = list.map((t) => ({ t, c: calcTrip(t, settings) }));
+    const aoa = [EXPORT_COLS.map((col) => ({ t: 's', v: col.h }))];
+    for (const { t, c } of rows) aoa.push(EXPORT_COLS.map((col) => xCell(col.v(t, c), col.fmt)));
+    const last = rows.length + 1; // номер останнього рядка з даними (1-й — заголовок)
+    aoa.push(EXPORT_COLS.map((col, i) => {
+      if (i === 0) return { t: 's', v: 'Разом' };
+      if (!col.sum) return { t: 's', v: '' };
+      const L = XLSX.utils.encode_col(i);
+      const total = Math.round(rows.reduce((a, { t, c }) => a + (Number(col.v(t, c)) || 0), 0) * 100) / 100;
+      return { t: 'n', v: total, f: `SUM(${L}2:${L}${last})`, z: XLSX_FMT[col.fmt] };
+    }));
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = EXPORT_COLS.map((col) => ({ wch: col.w }));
+    ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: last - 1, c: EXPORT_COLS.length - 1 } }) };
+    return ws;
+  }
+
+  /** Аркуш «Підсумок» — ті самі цифри, що на панелі (з урахуванням щомісячних витрат). */
+  function summarySheet(XLSX, list) {
+    const s = summarize(list, settings);
+    const m = (label, v) => [{ t: 's', v: label }, xCell(v, 'money')];
+    const aoa = [
+      [{ t: 's', v: 'Облік рейсів — підсумок' }],
+      [{ t: 's', v: 'Період' }, { t: 's', v: $('#periodLabel').textContent.trim() }],
+      [{ t: 's', v: 'Вивантажено' }, xCell(today(), 'date')],
+      [],
+      [{ t: 's', v: 'Рейсів' }, xCell(s.count, 'int')],
+      [{ t: 's', v: 'Кілометрів' }, xCell(s.km, 'int')],
+      [{ t: 's', v: 'Діб у рейсах' }, xCell(s.days, 'int')],
+      [],
+      m('Сума фрахту', s.freight),
+      m('Диспетчерські', s.dispatch),
+      m('Паливо (фактично)', s.fuelCost),
+      m('Податок', s.tax),
+      m('Добові', s.perDiem),
+      m('СТО', s.sto),
+      m('Ремонт', s.repair),
+      m('Інші витрати', s.other),
+      m('ЗП водія', s.driverPay),
+      m('ЗП логіста', s.logistPay),
+      m(`Щомісячні витрати (${s.months} міс.)`, s.monthlyExpenses),
+      [],
+      m('Чистий прибуток бізнесу', s.netProfit),
+      m('Компаньйону', s.partnerShare),
+      m('Ваш прибуток', s.ownerProfit),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 30 }, { wch: 22 }];
+    return ws;
+  }
+
+  /** Аркуш одного рейсу: «Показник — Значення», як у вікні перегляду. */
+  function singleTripSheet(XLSX, t) {
+    const c = calcTrip(t, settings);
+    const r = c.rates;
+    const pct = (x) => fmtL.format(x) + '%';
+    const T = (label, v) => [{ t: 's', v: label }, { t: 's', v: String(v ?? '') }];
+    const N = (label, v, fmt = 'money') => [{ t: 's', v: label }, xCell(v, fmt)];
+    const H = (title) => [{ t: 's', v: title.toUpperCase() }];
+    const aoa = [
+      T('Рейс', [tripPlate(t).plate, tripDates(t)].filter(Boolean).join(' · ')),
+      [],
+      H('Водій та авто'),
+      T('Водій', tripDriver(t) || '—'),
+      T('Авто', tripCar(t) || '—'),
+      T('Маршрут', t.route || '—'),
+      [{ t: 's', v: 'Дата початку' }, xCell(t.startDate, 'date')],
+      [{ t: 's', v: 'Дата кінця' }, xCell(t.endDate, 'date')],
+      T('Нотатка', t.note || '—'),
+      [],
+      H('Пробіг'),
+      N('Діб у рейсі', c.days, 'int'),
+      N('Одометр початок, км', num(t.odoStart), 'int'),
+      N('Одометр кінець, км', num(t.odoEnd), 'int'),
+      N('Км за рейс', c.km, 'int'),
+      [],
+      H('Паливо'),
+      N('Витрата, л', c.fuelLiters, 'dec'),
+      N('Л на 100 км', c.fuelPer100, 'dec'),
+      N('Ціна для водія, грн/л', c.fuelPrice),
+      N('Фактична ціна, грн/л', c.fuelPriceActual),
+      N('Сума для водія', c.fuelCostDriver),
+      N('Сума фактична', c.fuelCost),
+      N('Знижка (економія)', c.fuelDiscount),
+      [],
+      H('Фрахт'),
+      N('Готівка', c.cash),
+      N('Безнал', c.bank),
+      N('Карта', c.card),
+      N('Отримано всього', c.received),
+      N('Диспетчерські', c.dispatch),
+      N('Сума фрахту', c.freight),
+      N('Ціна за 1 км', c.pricePerKm),
+      [],
+      H('Витрати'),
+      N('Паливо (фактично)', c.fuelCost),
+      N(`Податок ${pct(r.taxRate)}`, c.tax),
+      N(`Добові ${fmtInt.format(r.perDiem)} × ${c.days}`, c.perDiem),
+      N(`СТО ${fmtInt.format(r.stoRate)} × ${c.days}`, c.sto),
+      N('Ремонт', c.repair),
+      N('Інші витрати', c.other),
+      N(`ЗП водія ${pct(r.driverRate)}`, c.driverPay),
+      N(`ЗП логіста ${pct(r.logistRate)}`, c.logistPay),
+      N('Усього витрат', c.totalExpenses),
+      [],
+      H('Прибуток'),
+      N('Прибуток авто (база ЗП)', c.carProfit),
+      N('Чистий прибуток бізнесу', c.netProfit),
+      N(`Компаньйону ${pct(r.partnerRate)}`, c.partnerShare),
+      N('Ваш прибуток', c.ownerProfit),
+      N('Чистий прибуток з 1 км', c.profitPerKm),
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 28 }, { wch: 34 }];
+    return ws;
+  }
+
+  function saveWorkbook(XLSX, sheets, filename) {
+    const wb = XLSX.utils.book_new();
+    for (const [name, ws] of sheets) XLSX.utils.book_append_sheet(wb, ws, name);
+    XLSX.writeFile(wb, filename, { compression: true });
+  }
+
+  /** Усі рейси за вибраний період / пошук → .xlsx (якщо бібліотека не завантажилась — CSV). */
+  async function exportXlsx() {
     const list = filteredTrips();
     if (!list.length) return toast('Немає рейсів для експорту', 'info');
-    const head = ['Дата початку', 'Дата кінця', 'Водій', 'Авто', 'Маршрут', 'Одометр поч.', 'Одометр кін.', 'Км', 'Діб', 'Паливо, л', 'Ціна палива для водія', 'Фактична ціна палива', 'Паливо для водія, грн', 'Паливо фактично, грн', 'Знижка на паливо', 'Готівка', 'Безнал', 'Карта', 'Диспетчерські', 'Фрахт (без диспетчерських)', 'Грн/км', 'Податок', 'Добові', 'СТО', 'Ремонт', 'Інші витрати', 'Прибуток авто', 'ЗП водія', 'ЗП логіста', 'Чистий прибуток бізнесу', 'Компаньйону', 'Ваш прибуток', 'Нотатка'];
+    const period = fileSafe($('#periodLabel').textContent);
+    const name = `reisy_${period || 'usi'}_${today()}`;
+    try {
+      const XLSX = await loadXlsx();
+      saveWorkbook(XLSX, [['Рейси', tripsSheet(XLSX, list)], ['Підсумок', summarySheet(XLSX, list)]], name + '.xlsx');
+      toast(`Excel збережено: ${list.length} ${plural(list.length, 'рейс', 'рейси', 'рейсів')}`);
+    } catch (e) {
+      console.error(e);
+      exportCSV(list, name + '.csv');
+      toast('Не вдалося підключити Excel-бібліотеку — збережено CSV (теж відкривається в Excel)', 'info');
+    }
+  }
+
+  /** Один рейс → .xlsx */
+  async function exportTripXlsx(id) {
+    const t = trips.find((x) => x.id === id);
+    if (!t) return;
+    const name = `reis_${fileSafe(tripPlate(t).plate) || 'bez-nomera'}_${t.startDate || today()}`;
+    try {
+      const XLSX = await loadXlsx();
+      saveWorkbook(XLSX, [['Рейс', singleTripSheet(XLSX, t)], ['Рядком', tripsSheet(XLSX, [t])]], name + '.xlsx');
+      toast('Рейс збережено в Excel');
+    } catch (e) {
+      console.error(e);
+      exportCSV([t], name + '.csv');
+      toast('Не вдалося підключити Excel-бібліотеку — збережено CSV', 'info');
+    }
+  }
+
+  function exportCSV(list = filteredTrips(), filename = `reisy_${today()}.csv`) {
+    if (!list.length) return toast('Немає рейсів для експорту', 'info');
     const cell = (v) => {
-      const s = typeof v === 'number' ? String(v).replace('.', ',') : String(v ?? '');
-      return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+      let s = typeof v === 'number' ? String(v).replace('.', ',') : String(v ?? '');
+      // Захист від «формул» у тексті (=, +, -, @ на початку Excel сприйняв би як формулу)
+      if (typeof v === 'string' && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+      return /[;"\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
     };
-    const lines = [head.join(';')];
+    const lines = [EXPORT_COLS.map((col) => col.h).join(';')];
     for (const t of list) {
       const c = calcTrip(t, settings);
-      lines.push([fmtDate(t.startDate), fmtDate(t.endDate), tripDriver(t), tripCar(t), t.route, num(t.odoStart), num(t.odoEnd), c.km, c.days, c.fuelLiters, c.fuelPrice, c.fuelPriceActual, c.fuelCostDriver, c.fuelCost, c.fuelDiscount, c.cash, c.bank, c.card, c.dispatch, c.freight, c.pricePerKm, c.tax, c.perDiem, c.sto, c.repair, c.other, c.carProfit, c.driverPay, c.logistPay, c.netProfit, c.partnerShare, c.ownerProfit, t.note].map(cell).join(';'));
+      lines.push(EXPORT_COLS.map((col) => cell(col.fmt === 'date' ? fmtDate(col.v(t, c)) : col.v(t, c))).join(';'));
     }
-    download(`reisy_${new Date().toISOString().slice(0, 10)}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
-    toast('CSV збережено — відкривається в Excel');
+    download(filename, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
   }
 
   function exportJSON() {
@@ -1547,6 +1784,7 @@
       menu.classList.add('hidden');
       switch (action.dataset.action) {
         case 'add': openTripForm(); break;
+        case 'export-xlsx': exportXlsx(); break;
         case 'export-csv': exportCSV(); break;
         case 'export-json': exportJSON(); break;
         case 'import-json': $('#importFile').click(); break;
@@ -1569,6 +1807,8 @@
 
     const edit = e.target.closest('[data-edit]');
     if (edit) return openTripForm(edit.dataset.edit);
+    const xl = e.target.closest('[data-xlsx]');
+    if (xl) return exportTripXlsx(xl.dataset.xlsx);
     const copy = e.target.closest('[data-copy]');
     if (copy) return openTripForm(copy.dataset.copy, { copy: true });
     const del = e.target.closest('[data-del]');

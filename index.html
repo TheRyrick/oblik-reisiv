@@ -86,7 +86,8 @@
             <i data-lucide="database" class="h-4 w-4"></i><span class="hidden md:inline">Дані</span>
           </button>
           <div id="menu" class="dropdown hidden">
-            <button data-action="export-csv" class="dropdown-item"><i data-lucide="file-spreadsheet" class="h-4 w-4"></i>Експорт у Excel (CSV)</button>
+            <button data-action="export-xlsx" class="dropdown-item"><i data-lucide="file-spreadsheet" class="h-4 w-4"></i>Рейси в Excel (.xlsx)</button>
+            <button data-action="export-csv" class="dropdown-item"><i data-lucide="file-spreadsheet" class="h-4 w-4"></i>Рейси в CSV</button>
             <button data-action="export-json" class="dropdown-item"><i data-lucide="download" class="h-4 w-4"></i>Резервна копія (JSON)</button>
             <button data-action="import-json" class="dropdown-item"><i data-lucide="upload" class="h-4 w-4"></i>Відновити з копії</button>
             <div class="my-1 h-px bg-white/5"></div>
@@ -228,9 +229,14 @@
           <h2 class="card-title">Рейси</h2>
           <p class="text-xs text-slate-400" id="tripsCount">0 рейсів</p>
         </div>
-        <div class="relative w-full sm:w-72">
+        <div class="flex w-full items-center gap-2 sm:w-auto">
+        <div class="relative min-w-0 flex-1 sm:w-72 sm:flex-none">
           <i data-lucide="search" class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500"></i>
           <input id="search" type="search" placeholder="Пошук: маршрут, водій, авто, нотатка…" class="input !pl-9" />
+        </div>
+        <button type="button" data-action="export-xlsx" class="btn-ghost shrink-0" title="Скачати в Excel усі рейси, які зараз у списку (з урахуванням періоду й пошуку)">
+          <i data-lucide="file-spreadsheet" class="h-4 w-4"></i><span>Excel</span>
+        </button>
         </div>
       </div>
 
@@ -411,6 +417,7 @@
         <div class="flex flex-col-reverse gap-2 border-t border-white/5 px-5 py-4 sm:flex-row sm:justify-between">
           <button type="button" id="viewDelete" class="btn-ghost justify-center text-rose-300 hover:!bg-rose-500/10"><i data-lucide="trash-2" class="h-4 w-4"></i>Видалити</button>
           <div class="flex flex-col-reverse gap-2 sm:flex-row">
+            <button type="button" id="viewXlsx" class="btn-ghost justify-center"><i data-lucide="file-spreadsheet" class="h-4 w-4"></i>Excel</button>
             <button type="button" id="viewCopy" class="btn-ghost justify-center"><i data-lucide="copy" class="h-4 w-4"></i>Дублювати</button>
             <button type="button" id="viewEdit" class="btn-primary justify-center"><i data-lucide="pencil" class="h-4 w-4"></i>Редагувати</button>
           </div>
