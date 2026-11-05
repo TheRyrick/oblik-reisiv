@@ -1,8 +1,9 @@
 name: Deploy to GitHub Pages
 
+# Основний хостинг — Netlify. Автозапуск при пуші вимкнено;
+# запустити вручну: GitHub → Actions → Deploy to GitHub Pages → Run workflow
+# (спершу задайте змінні SUPABASE_URL і SUPABASE_ANON_KEY у Settings → Variables).
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
