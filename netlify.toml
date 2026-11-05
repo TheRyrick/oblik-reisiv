@@ -1,7 +1,7 @@
 [build]
-  publish = "."
-  # Генерує js/env.js зі змінних оточення SUPABASE_URL і SUPABASE_ANON_KEY
-  command = "sh tools/build-env.sh"
+  publish = "build"
+  # Генерує js/env.js зі змінних SUPABASE_URL і SUPABASE_ANON_KEY та збирає сайт у build/
+  command = "npm run build"
 
 [[headers]]
   for = "/*"

@@ -1,0 +1,9 @@
+{
+  "name": "oblik-reisiv",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Облік рейсів — статичний сайт із Supabase",
+  "scripts": {
+    "build": "sh tools/build.sh"
+  }
+}
