@@ -142,7 +142,7 @@ body {
   transition: border-color .15s, box-shadow .15s; font-variant-numeric: tabular-nums;
 }
 @media (min-width: 640px) { .input { font-size: .9rem; } }
-.input::placeholder { color: #5b636d; }
+.input::placeholder { color: #939aa1; }
 .input:focus { outline: none; border-color: var(--signal); box-shadow: 0 0 0 3px rgba(239,186,24,.2); }
 .input.invalid { border-color: var(--loss); box-shadow: 0 0 0 3px rgba(239,106,91,.18); }
 .input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(.75); cursor: pointer; }
@@ -544,3 +544,18 @@ select.input { cursor: pointer; }
 
 /* Графік заповнює картку; canvas абсолютний, щоб не розпирав висоту */
 .chart-box > canvas { position: absolute; inset: 0; }
+
+/* ---------- Заглушки завантаження (силуети панелі) ---------- */
+.skel-screen { background: rgba(27, 32, 39, .55); }
+.skel-header { background: rgba(27, 32, 39, .92); border-bottom: 1px solid var(--line); }
+.skel {
+  border-radius: var(--r-lg);
+  background: linear-gradient(100deg, var(--surface) 30%, var(--raised) 50%, var(--surface) 70%);
+  background-size: 300% 100%;
+  border: 1px solid var(--line);
+  animation: skelShine 1.4s ease-in-out infinite;
+}
+@keyframes skelShine { from { background-position: 100% 0; } to { background-position: 0 0; } }
+@media (prefers-reduced-motion: reduce) {
+  .skel { animation: none; background: var(--surface); }
+}

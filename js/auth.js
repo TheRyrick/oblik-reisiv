@@ -24,6 +24,34 @@
     box.innerHTML = `<div class="w-full max-w-md rounded-2xl border border-rose-500/20 bg-ink-900 p-6 text-sm text-slate-300">${html}</div>`;
     document.body.appendChild(box);
   }
+  /** Силуети панелі, що пульсують, поки тягнуться дані з хмари (замість голого «Завантаження…»). */
+  function showSkeleton() {
+    document.getElementById('authScreen')?.remove();
+    const box = document.createElement('div');
+    box.id = 'authScreen';
+    box.className = 'skel-screen fixed inset-0 z-[100] overflow-hidden';
+    box.setAttribute('role', 'status');
+    box.setAttribute('aria-busy', 'true');
+    const b = (cls) => `<div class="skel ${cls}"></div>`;
+    box.innerHTML = `
+      <span class="sr-only">Завантаження даних…</span>
+      <div class="skel-header" aria-hidden="true">
+        <div class="mx-auto flex max-w-7xl items-center gap-3 px-4 py-3 sm:px-6">
+          ${b('h-10 w-10 rounded-xl')}${b('hidden h-5 w-32 md:block')}
+          <div class="ml-auto flex gap-2">${b('h-10 w-10 rounded-xl')}${b('hidden h-10 w-36 rounded-xl md:block')}</div>
+        </div>
+      </div>
+      <div class="mx-auto max-w-7xl space-y-6 px-4 pt-6 sm:px-6 sm:pt-8" aria-hidden="true">
+        <div class="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+          <div class="space-y-2">${b('h-8 w-64 max-w-full')}${b('h-4 w-28')}</div>
+          <div class="grid grid-cols-2 gap-2 sm:flex">${b('h-11 sm:w-32')}${b('h-11 sm:w-36')}</div>
+        </div>
+        <div class="grid gap-3 sm:gap-4 md:grid-cols-3">${b('h-32')}${b('h-32')}${b('h-32')}</div>
+        <div class="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">${b('h-24')}${b('h-24')}${b('h-24')}${b('h-24')}</div>
+        <div class="grid gap-4 lg:grid-cols-3">${b('h-80 lg:col-span-2')}${b('h-80')}</div>
+      </div>`;
+    document.body.appendChild(box);
+  }
   function loadScript(src) {
     return new Promise((resolve, reject) => {
       const s = document.createElement('script');
@@ -72,8 +100,7 @@
 
   // ---------- Запуск застосунку ----------
   async function startApp(user) {
-    const screen = document.getElementById('authScreen');
-    if (screen) screen.querySelector('#authSubmit span')?.replaceChildren('Завантаження даних…');
+    showSkeleton();
     try {
       await Cloud.init(db, user.id);
       await migrateLegacy();
@@ -209,7 +236,7 @@
     db = window.supabase.createClient(ENV.SUPABASE_URL, ENV.SUPABASE_ANON_KEY, {
       auth: { persistSession: true, autoRefreshToken: true, storageKey: 'truck-ledger.supabase.auth' },
     });
-    fatal('<p class="text-center text-slate-400">Завантаження…</p>');
+    showSkeleton();
     const { data } = await db.auth.getSession();
     if (data.session) return startApp(data.session.user);
     renderLogin();
