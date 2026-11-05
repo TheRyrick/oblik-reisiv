@@ -168,7 +168,7 @@
       { label: '3. Ваш прибуток', value: uah(s.ownerProfit), sub: s.monthlyExpenses ? 'після компаньйону та щомісячних витрат' : 'чистий прибуток бізнесу після компаньйону', icon: 'piggy-bank', color: 'text-lime-300 bg-lime-500/15', glow: 'rgba(132,204,22,.2)', valueClass: profitClass(s.ownerProfit) },
     ];
     const items = [
-      { label: 'Сума фрахту', value: uah(s.freight), sub: `${s.count} ${plural(s.count, 'рейс', 'рейси', 'рейсів')}`, icon: 'wallet', color: 'text-indigo-300 bg-indigo-500/15', glow: 'rgba(99,102,241,.22)' },
+      { label: 'Сума фрахту', value: uah(s.freight), sub: `${s.count} ${plural(s.count, 'рейс', 'рейси', 'рейсів')}` + (s.dispatch ? ` · без диспетчерських ${uah(s.dispatch)}` : ''), icon: 'wallet', color: 'text-indigo-300 bg-indigo-500/15', glow: 'rgba(99,102,241,.22)' },
       { label: 'ЗП водія', value: uah(s.driverPay), sub: `+ добові ${uah(s.perDiem)}`, icon: 'user-round', color: 'text-amber-300 bg-amber-500/15', glow: 'rgba(245,158,11,.2)' },
       { label: 'ЗП логіста', value: uah(s.logistPay), sub: (s.freight > 0 ? `${fmtL.format((s.logistPay / s.freight) * 100)}% від фрахту` : 'від суми фрахту') + ' · входить у чистий прибуток', icon: 'headset', color: 'text-fuchsia-300 bg-fuchsia-500/15', glow: 'rgba(217,70,239,.2)' },
       { label: 'Щомісячні витрати', value: uah(s.monthlyExpenses), sub: s.monthlyRate ? `${uah(s.monthlyRate)} × ${s.months} ${plural(s.months, 'місяць', 'місяці', 'місяців')}` : 'вкажіть суму в «Ставках»', icon: 'calendar-check', color: 'text-slate-300 bg-slate-500/15', glow: 'rgba(100,116,139,.2)' },
@@ -226,11 +226,12 @@
       { label: 'Готівка', v: s.cash, icon: 'banknote', c: 'text-emerald-400' },
       { label: 'Безнал', v: s.bank, icon: 'landmark', c: 'text-sky-400' },
       { label: 'Карта', v: s.card, icon: 'credit-card', c: 'text-violet-400' },
+      ...(s.dispatch ? [{ label: 'Диспетчерські', v: -s.dispatch, icon: 'hand-coins', c: 'text-orange-400' }] : []),
     ];
     $('#payments').innerHTML = pays.map((p) => `
       <div class="flex items-center justify-between text-sm">
         <span class="flex items-center gap-2 text-slate-400"><i data-lucide="${p.icon}" class="h-4 w-4 ${p.c}"></i>${p.label}</span>
-        <span class="num font-semibold text-white">${uah(p.v)}</span>
+        <span class="num font-semibold ${p.v < 0 ? 'text-orange-300' : 'text-white'}">${p.v < 0 ? '− ' + uah(-p.v) : uah(p.v)}</span>
       </div>`).join('');
   }
 
@@ -510,6 +511,7 @@
           row('Готівка', uah2(c.cash)) +
           row('Безнал', uah2(c.bank)) +
           row('Карта', uah2(c.card)) +
+          (c.dispatch ? sep + row('Отримано всього', uah2(c.received)) + row('Диспетчерські', '− ' + uah2(c.dispatch), 'text-orange-300') : '') +
           sep +
           row('Сума фрахту', uah2(c.freight), 'text-white') +
           row('Ціна за 1 км', uah2(c.pricePerKm), 'text-indigo-300'))}
@@ -578,7 +580,7 @@
   }
 
   const tripForm = $('#tripForm');
-  const FIELDS = ['driverId', 'carId', 'startDate', 'endDate', 'route', 'odoStart', 'odoEnd', 'fuelLiters', 'fuelPrice', 'fuelPriceActual', 'cash', 'bank', 'card', 'repairExpenses', 'otherExpenses', 'note', 'perDiem', 'stoRate', 'taxRate', 'driverRate', 'partnerRate', 'logistRate'];
+  const FIELDS = ['driverId', 'carId', 'startDate', 'endDate', 'route', 'odoStart', 'odoEnd', 'fuelLiters', 'fuelPrice', 'fuelPriceActual', 'cash', 'bank', 'card', 'dispatch', 'repairExpenses', 'otherExpenses', 'note', 'perDiem', 'stoRate', 'taxRate', 'driverRate', 'partnerRate', 'logistRate'];
   const TEXT_FIELDS = ['driverId', 'carId', 'startDate', 'endDate', 'route', 'note'];
 
   /** Списки водіїв/авто у формі рейсу. Якщо в рейсі вказано вже видаленого — показуємо його окремо. */
@@ -614,6 +616,7 @@
 
   function openTripForm(id, { copy = false } = {}) {
     clearErrors();
+    resetReport();
     const existing = id ? trips.find((t) => t.id === id) : null;
     editingId = existing && !copy ? existing.id : null;
     formSource = existing;
@@ -628,6 +631,7 @@
         tripForm.elements.odoEnd.value = '';
         tripForm.elements.fuelLiters.value = '';
         tripForm.elements.repairExpenses.value = '';
+        for (const f of ['cash', 'bank', 'card', 'dispatch']) tripForm.elements[f].value = '';
       }
     } else {
       const prev = lastTrip();
@@ -659,6 +663,8 @@
       row('Км за рейс', fmtInt.format(c.km) + ' км'),
       row('Середня витрата', fmtL.format(c.fuelPer100) + ' л/100км'),
       '<div class="preview-sep"></div>',
+      c.dispatch ? row('Отримано всього', uah2(c.received)) : '',
+      c.dispatch ? row('Диспетчерські', '− ' + uah2(c.dispatch), 'text-orange-300') : '',
       row('Сума фрахту', uah2(c.freight), 'text-white'),
       row('Ціна за 1 км', uah2(c.pricePerKm), 'text-indigo-300'),
       '<div class="preview-sep"></div>',
@@ -684,6 +690,68 @@
     ].join('');
   }
 
+  // ---------- Звіт логіста з Телеграму ----------
+  const reportInput = $('#reportInput');
+  const reportResult = $('#reportResult');
+
+  function resetReport() {
+    reportInput.value = '';
+    reportResult.className = 'mt-2 hidden rounded-xl border px-3 py-2 text-xs';
+    reportResult.innerHTML = '';
+  }
+
+  function applyReport() {
+    const text = reportInput.value.trim();
+    if (!text) { resetReport(); return; }
+    const r = window.Report.parse(text);
+    const el = tripForm.elements;
+    const got = r.cash + r.bank + r.card;
+    const notes = [];
+
+    if (r.startDate) {
+      el.startDate.value = r.startDate;
+      // Кінець рейсу — зі звіту, або той самий день (далі уточнюється вручну)
+      el.endDate.value = r.endDate || r.startDate;
+    }
+    if (r.route) el.route.value = r.route;
+    if (got > 0 || r.dispatch > 0) {
+      el.cash.value = r.cash || '';
+      el.bank.value = r.bank || '';
+      el.card.value = r.card || '';
+      el.dispatch.value = r.dispatch || '';
+    }
+
+    const ok = got > 0;
+    if (ok) {
+      const parts = [
+        `<b>${r.orders} ${plural(r.orders, 'замовлення', 'замовлення', 'замовлень')}</b>`,
+        r.cash ? `готівка ${uah(r.cash)}` : '',
+        r.bank ? `безнал ${uah(r.bank)}` : '',
+        r.card ? `карта ${uah(r.card)}` : '',
+        r.dispatch ? `диспетчерські − ${uah(r.dispatch)}` : 'диспетчерських у звіті не знайдено',
+      ].filter(Boolean);
+      notes.push('✓ Розпізнано: ' + parts.join(' · ') + ` → фрахт <b>${uah(got - r.dispatch)}</b>`);
+      if (!r.startDate) notes.push('Дату не знайдено — вкажіть вручну.');
+      else if (!r.endDate) notes.push('Дату кінця поставив таку ж, як початок — виправте, якщо рейс був довший.');
+    } else {
+      notes.push('Не вдалося знайти суми. Рядки мають виглядати так: «12000грн / безнал», «7000грн / наличка», «-1000грн / диспетчерских».');
+    }
+    if (r.remainders.length) notes.push('Залишок після диспетчерських (не рахується повторно): ' + r.remainders.map((l) => `«${escapeHtml(l)}»`).join(', '));
+    if (r.unknown.length) notes.push('Не зрозумів, як оплачено (пропущено): ' + r.unknown.map((l) => `«${escapeHtml(l)}»`).join(', '));
+
+    reportResult.className = 'mt-2 rounded-xl border px-3 py-2 text-xs leading-relaxed space-y-1 ' + (ok && !r.unknown.length
+      ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-200'
+      : 'border-amber-500/30 bg-amber-500/10 text-amber-200');
+    reportResult.innerHTML = notes.map((n) => `<div>${n}</div>`).join('');
+    clearErrors();
+    updatePreview();
+  }
+
+  reportInput.addEventListener('input', (e) => {
+    e.stopPropagation();
+    applyReport();
+  });
+
   function clearErrors() {
     $$('.input.invalid', tripForm).forEach((el) => el.classList.remove('invalid'));
     $('#formError').classList.add('hidden');
@@ -698,9 +766,10 @@
     if (d.odoStart === '') { errors.push('Вкажіть початковий одометр.'); mark('odoStart'); }
     if (d.odoEnd === '') { errors.push('Вкажіть кінцевий одометр.'); mark('odoEnd'); }
     if (d.odoStart !== '' && d.odoEnd !== '' && d.odoEnd < d.odoStart) { errors.push('Кінцевий одометр менший за початковий.'); mark('odoEnd'); }
-    for (const f of ['fuelLiters', 'fuelPrice', 'fuelPriceActual', 'cash', 'bank', 'card', 'repairExpenses', 'otherExpenses', 'perDiem', 'stoRate', 'taxRate', 'driverRate', 'partnerRate', 'logistRate']) {
+    for (const f of ['fuelLiters', 'fuelPrice', 'fuelPriceActual', 'cash', 'bank', 'card', 'dispatch', 'repairExpenses', 'otherExpenses', 'perDiem', 'stoRate', 'taxRate', 'driverRate', 'partnerRate', 'logistRate']) {
       if (d[f] !== '' && d[f] < 0) { errors.push('Значення не можуть бути відʼємними.'); mark(f); break; }
     }
+    if (num(d.dispatch) > num(d.cash) + num(d.bank) + num(d.card)) { errors.push('Диспетчерські більші за отриману суму.'); mark('dispatch'); }
     return errors;
   }
 
@@ -902,7 +971,7 @@
   function exportCSV() {
     const list = filteredTrips();
     if (!list.length) return toast('Немає рейсів для експорту', 'info');
-    const head = ['Дата початку', 'Дата кінця', 'Водій', 'Авто', 'Маршрут', 'Одометр поч.', 'Одометр кін.', 'Км', 'Діб', 'Паливо, л', 'Ціна палива для водія', 'Фактична ціна палива', 'Паливо для водія, грн', 'Паливо фактично, грн', 'Знижка на паливо', 'Готівка', 'Безнал', 'Карта', 'Фрахт всього', 'Грн/км', 'Податок', 'Добові', 'СТО', 'Ремонт', 'Інші витрати', 'Прибуток авто', 'ЗП водія', 'ЗП логіста', 'Чистий прибуток бізнесу', 'Компаньйону', 'Ваш прибуток', 'Нотатка'];
+    const head = ['Дата початку', 'Дата кінця', 'Водій', 'Авто', 'Маршрут', 'Одометр поч.', 'Одометр кін.', 'Км', 'Діб', 'Паливо, л', 'Ціна палива для водія', 'Фактична ціна палива', 'Паливо для водія, грн', 'Паливо фактично, грн', 'Знижка на паливо', 'Готівка', 'Безнал', 'Карта', 'Диспетчерські', 'Фрахт (без диспетчерських)', 'Грн/км', 'Податок', 'Добові', 'СТО', 'Ремонт', 'Інші витрати', 'Прибуток авто', 'ЗП водія', 'ЗП логіста', 'Чистий прибуток бізнесу', 'Компаньйону', 'Ваш прибуток', 'Нотатка'];
     const cell = (v) => {
       const s = typeof v === 'number' ? String(v).replace('.', ',') : String(v ?? '');
       return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
@@ -910,7 +979,7 @@
     const lines = [head.join(';')];
     for (const t of list) {
       const c = calcTrip(t, settings);
-      lines.push([fmtDate(t.startDate), fmtDate(t.endDate), tripDriver(t), tripCar(t), t.route, num(t.odoStart), num(t.odoEnd), c.km, c.days, c.fuelLiters, c.fuelPrice, c.fuelPriceActual, c.fuelCostDriver, c.fuelCost, c.fuelDiscount, c.cash, c.bank, c.card, c.freight, c.pricePerKm, c.tax, c.perDiem, c.sto, c.repair, c.other, c.carProfit, c.driverPay, c.logistPay, c.netProfit, c.partnerShare, c.ownerProfit, t.note].map(cell).join(';'));
+      lines.push([fmtDate(t.startDate), fmtDate(t.endDate), tripDriver(t), tripCar(t), t.route, num(t.odoStart), num(t.odoEnd), c.km, c.days, c.fuelLiters, c.fuelPrice, c.fuelPriceActual, c.fuelCostDriver, c.fuelCost, c.fuelDiscount, c.cash, c.bank, c.card, c.dispatch, c.freight, c.pricePerKm, c.tax, c.perDiem, c.sto, c.repair, c.other, c.carProfit, c.driverPay, c.logistPay, c.netProfit, c.partnerShare, c.ownerProfit, t.note].map(cell).join(';'));
     }
     download(`reisy_${new Date().toISOString().slice(0, 10)}.csv`, '﻿' + lines.join('\r\n'), 'text/csv;charset=utf-8');
     toast('CSV збережено — відкривається в Excel');

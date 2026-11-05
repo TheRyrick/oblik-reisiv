@@ -3,7 +3,7 @@
   'use strict';
 
   const ENV = window.ENV || {};
-  const APP_SCRIPTS = ['js/calc.js', 'js/app.js'];
+  const APP_SCRIPTS = ['js/calc.js', 'js/report.js', 'js/app.js'];
   // Ключі старої локальної версії — для одноразового перенесення в хмару
   const LEGACY = {
     trips: 'truck-ledger.trips.v1',

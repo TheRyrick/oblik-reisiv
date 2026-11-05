@@ -67,8 +67,14 @@
     const cash = num(t.cash);
     const bank = num(t.bank);
     const card = num(t.card);
-    const freight = cash + bank + card;
+    // Отримано всього (готівка + безнал + карта)
+    const received = cash + bank + card;
+    // Диспетчерські — віддали посереднику, який дав замовлення; у фрахт не входять
+    const dispatch = num(t.dispatch);
+    // Фрахт — реальний заробіток рейсу: з нього рахуються ЗП логіста, ЗП водія і прибуток
+    const freight = received - dispatch;
 
+    // Податок — від усієї суми, що прийшла на рахунок
     const tax = bank * (taxRate / 100);
     const days = daysBetween(t.startDate, t.endDate);
     const perDiem = days * perDiemRate;
@@ -97,6 +103,8 @@
     return {
       km, days, fuelLiters, fuelPrice, fuelPriceActual, fuelPer100,
       cash, bank, card, freight,
+      received: round2(received),
+      dispatch: round2(dispatch),
       fuelCost: round2(fuelCost),
       fuelCostDriver: round2(fuelCostDriver),
       fuelDiscount: round2(fuelDiscount),
@@ -126,7 +134,7 @@
   function summarize(trips, rates) {
     const r = Object.assign({}, DEFAULTS, rates || {});
     const s = {
-      count: 0, km: 0, days: 0, fuelLiters: 0, freight: 0, cash: 0, bank: 0, card: 0,
+      count: 0, km: 0, days: 0, fuelLiters: 0, freight: 0, cash: 0, bank: 0, card: 0, received: 0, dispatch: 0,
       fuelCost: 0, fuelCostDriver: 0, fuelDiscount: 0, tax: 0, perDiem: 0, sto: 0, other: 0, repair: 0, carProfit: 0, driverPay: 0, logistPay: 0, netProfit: 0,
       partnerShare: 0, ownerProfit: 0,
     };
