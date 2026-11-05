@@ -488,14 +488,8 @@
   function renderTrips(list, s) {
     $('#tripsCount').textContent = `${list.length} ${plural(list.length, 'рейс', 'рейси', 'рейсів')}` + (list.length !== trips.length ? ` із ${trips.length}` : '');
     const isEmpty = list.length === 0;
-    $('#emptyState').style.display = isEmpty ? 'flex' : 'none';
-    if (isEmpty && trips.length) {
-      $('#emptyState h3').textContent = 'Нічого не знайдено';
-      $('#emptyState p').textContent = 'Змініть період або пошуковий запит.';
-    } else {
-      $('#emptyState h3').textContent = 'Ще немає рейсів';
-      $('#emptyState p').textContent = 'Додайте перший рейс — усі показники (км, паливо, податок, добові, ЗП водія, прибуток) порахуються автоматично.';
-    }
+    $('#emptyState').classList.toggle('hidden', !isEmpty);
+    $('#emptyState').innerHTML = isEmpty ? (trips.length ? noResultsHtml() : welcomeHtml()) : '';
 
     const rows = list.map((t) => ({ t, c: calcTrip(t, settings) }));
 
@@ -617,9 +611,71 @@
            <button class="text-indigo-300 underline" data-action="add">додати рейс</button></div>`;
   }
 
+  // ---------- Порожні екрани ----------
+  /** Перший вхід: три кроки до першого рейсу. */
+  function welcomeHtml() {
+    const refsDone = drivers.length > 0 || cars.length > 0;
+    const step = (n, done, title, text, action, btn, icon) => `
+      <li class="empty-step ${done ? 'is-done' : ''}">
+        <span class="empty-num" aria-hidden="true">${done ? '<i data-lucide="check" class="h-4 w-4"></i>' : n}</span>
+        <div class="min-w-0 flex-1">
+          <div class="font-semibold text-white">${title}${done ? '<span class="sr-only"> — готово</span>' : ''}</div>
+          <p class="mt-0.5 text-sm text-slate-400">${text}</p>
+        </div>
+        <button type="button" class="${n === 3 ? 'btn-primary' : 'btn-ghost'} shrink-0" data-action="${action}"><i data-lucide="${icon}" class="h-4 w-4"></i><span>${btn}</span></button>
+      </li>`;
+    return `
+      <div class="empty-hero">
+        <div class="empty-road" aria-hidden="true"><i data-lucide="truck"></i></div>
+        <h2 class="empty-title">Почнімо з першого рейсу</h2>
+        <p class="mx-auto mt-2 max-w-md text-sm text-slate-400">Вносите рейс — сайт сам рахує км, паливо, податок, добові, зарплати й ваш прибуток. Три кроки, і панель оживе.</p>
+        <ol class="empty-steps">
+          ${step(1, false, 'Перевірте ставки', 'Податок, добові, СТО, відсотки водія й логіста. Стандартні вже стоять — змініть, якщо у вас інакше.', 'settings', 'Ставки', 'settings-2')}
+          ${step(2, refsDone, 'Додайте водіїв та авто', 'Щоб у рейсі вибирати зі списку, а не писати щоразу вручну. Можна й пізніше.', 'refs', refsDone ? 'Змінити' : 'Додати', 'users')}
+          ${step(3, false, 'Внесіть перший рейс', 'Дати, одометр, паливо й оплату. Звіт логіста з Телеграму можна просто вставити — суми підтягнуться самі.', 'add', 'Новий рейс', 'plus')}
+        </ol>
+        <p class="mt-6 text-sm text-slate-500">Хочете спершу роздивитися?
+          <button type="button" class="font-medium text-indigo-300 underline-offset-4 hover:underline" data-action="demo">Завантажте демо-рейси</button> — їх можна видалити в меню «Дані».</p>
+      </div>`;
+  }
+
+  /** Рейси є, але під фільтр/пошук нічого не потрапило. */
+  function noResultsHtml() {
+    const period = escapeHtml($('#periodLabel').textContent.trim());
+    const q = query.trim();
+    const why = q ? `За запитом «${escapeHtml(q)}» нічого не знайдено` : `За період «${period}» рейсів немає`;
+    return `
+      <div class="empty-hero empty-compact">
+        <div class="empty-icon" aria-hidden="true"><i data-lucide="${q ? 'search' : 'calendar-range'}"></i></div>
+        <h2 class="empty-title">${why}</h2>
+        <p class="mx-auto mt-2 max-w-md text-sm text-slate-400">Усього у вас ${trips.length} ${plural(trips.length, 'рейс', 'рейси', 'рейсів')}. Покажіть усі або додайте новий рейс.</p>
+        <div class="mt-5 flex flex-wrap justify-center gap-2">
+          <button type="button" class="btn-ghost" data-action="reset-filters"><i data-lucide="list" class="h-4 w-4"></i><span>Показати всі рейси</span></button>
+          <button type="button" class="btn-primary" data-action="add"><i data-lucide="plus" class="h-4 w-4"></i><span>Додати рейс</span></button>
+        </div>
+      </div>`;
+  }
+
+  /** На панелі: замість нулів і порожніх графіків — підказка. */
+  function renderDashEmpty(list) {
+    const box = $('#dashEmpty');
+    const isEmpty = list.length === 0;
+    box.classList.toggle('hidden', !isEmpty);
+    box.innerHTML = isEmpty ? `<div class="card">${trips.length ? noResultsHtml() : welcomeHtml()}</div>` : '';
+    $$('#dashboardView > section').forEach((sec) => sec.classList.toggle('hidden', isEmpty));
+  }
+
+  function resetFilters() {
+    filter = { year: 'all', month: 'all', driver: 'all', car: 'all' };
+    query = '';
+    $('#search').value = '';
+    renderAll();
+  }
+
   function renderAll() {
     renderFilters();
     const list = filteredTrips();
+    renderDashEmpty(list);
     const s = summarize(list, settings);
     renderKpis(s);
     renderStructure(s);
@@ -1789,6 +1845,7 @@
         case 'export-json': exportJSON(); break;
         case 'import-json': $('#importFile').click(); break;
         case 'demo': addDemo(); break;
+        case 'reset-filters': resetFilters(); break;
         case 'refs': openRefs(); break;
         case 'settings': $('#settingsBtn').click(); break;
         case 'clear':

@@ -559,3 +559,46 @@ select.input { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .skel { animation: none; background: var(--surface); }
 }
+
+/* ---------- Порожні екрани (перший вхід / нічого не знайдено) ---------- */
+.empty-hero { text-align: center; padding: 1.5rem .25rem; }
+.empty-compact { padding: 1rem .25rem; }
+.empty-title {
+  font-family: Unbounded, Onest, sans-serif; font-weight: 600; color: var(--chalk);
+  font-size: clamp(1.15rem, 3.4vw, 1.5rem); line-height: 1.25; letter-spacing: -.01em;
+}
+.empty-icon {
+  display: grid; place-items: center; width: 3.5rem; height: 3.5rem; margin: 0 auto 1rem;
+  border-radius: var(--r-lg); background: rgba(239,186,24,.12); color: var(--signal); font-size: 1.6rem;
+}
+/* Смуга дороги з розміткою, по якій їде вантажівка */
+.empty-road {
+  position: relative; height: 3.5rem; max-width: 22rem; margin: 0 auto 1.25rem; overflow: hidden;
+  border-radius: var(--r-md); background: var(--raised); border: 1px solid var(--line);
+}
+.empty-road::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 50%; height: 3px; transform: translateY(-50%);
+  background: repeating-linear-gradient(90deg, var(--signal) 0 18px, transparent 18px 36px);
+  opacity: .7; animation: emptyLane 1.2s linear infinite;
+}
+.empty-road > i {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -58%);
+  font-size: 2rem; color: var(--chalk); background: var(--raised); padding: 0 .4rem; border-radius: .4rem;
+}
+@keyframes emptyLane { from { background-position: 0 0; } to { background-position: -36px 0; } }
+
+.empty-steps { display: grid; gap: .75rem; max-width: 40rem; margin: 1.75rem auto 0; text-align: left; counter-reset: none; }
+.empty-step {
+  display: flex; align-items: center; gap: .9rem; padding: .9rem 1rem;
+  border-radius: var(--r-md); background: rgba(242,240,234,.03); border: 1px solid var(--line);
+}
+.empty-num {
+  display: grid; place-items: center; flex: none; width: 2rem; height: 2rem; border-radius: 999px;
+  font-weight: 700; font-size: .9rem; color: var(--signal-ink); background: var(--signal);
+}
+.empty-step.is-done .empty-num { background: rgba(76,195,138,.18); color: var(--profit); }
+@media (max-width: 520px) {
+  .empty-step { flex-wrap: wrap; }
+  .empty-step > button { width: 100%; justify-content: center; }
+}
+@media (prefers-reduced-motion: reduce) { .empty-road::before { animation: none; } }

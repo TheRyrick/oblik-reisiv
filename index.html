@@ -151,6 +151,8 @@
 
     <!-- ===== Вкладка: Панель ===== -->
     <div id="dashboardView" class="space-y-6">
+    <!-- Порожній екран: перший вхід або немає рейсів за період (малює app.js) -->
+    <div id="dashEmpty" class="hidden"></div>
     <!-- KPI: головні показники -->
     <section>
       <div class="section-label flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -271,17 +273,8 @@
       <!-- Картки (мобільні) -->
       <div id="tripsCards" class="grid gap-3 p-4 md:grid-cols-2 xl:hidden"></div>
 
-      <div id="emptyState" class="hidden flex-col items-center justify-center px-6 py-16 text-center">
-        <div class="mb-4 grid h-16 w-16 place-items-center rounded-2xl bg-indigo-500/10 text-indigo-300">
-          <i data-lucide="route" class="h-8 w-8"></i>
-        </div>
-        <h3 class="text-lg font-semibold text-white">Ще немає рейсів</h3>
-        <p class="mt-1 max-w-sm text-sm text-slate-400">Додайте перший рейс — усі показники (км, паливо, податок, добові, ЗП водія, прибуток) порахуються автоматично.</p>
-        <div class="mt-5 flex flex-wrap justify-center gap-2">
-          <button class="btn-primary" data-action="add"><i data-lucide="plus" class="h-4 w-4"></i>Додати рейс</button>
-          <button class="btn-ghost" data-action="demo"><i data-lucide="sparkles" class="h-4 w-4"></i>Демо-дані</button>
-        </div>
-      </div>
+      <!-- Порожній список рейсів (вміст малює app.js) -->
+      <div id="emptyState" class="hidden px-4 py-10 sm:px-6 sm:py-14"></div>
     </section>
 
     <footer class="pb-6 text-center text-xs text-slate-500">
