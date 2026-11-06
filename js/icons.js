@@ -19,6 +19,8 @@
     'trending-up': 'trend-up', 'truck': 'truck', 'upload': 'upload-simple', 'user-plus': 'user-plus',
     'user-round': 'user', 'users': 'users-three', 'wallet': 'wallet', 'wrench': 'wrench', 'x': 'x',
     'check-circle-2': 'check-circle', 'alert-circle': 'warning-circle', 'info': 'info',
+    'key-round': 'key', 'arrow-up-right': 'arrow-up-right', 'arrow-down-left': 'arrow-down-left', 'scale': 'scales',
+    'history': 'clock-counter-clockwise', 'chevron-down': 'caret-down',
   };
   // Іконки, які краще виглядають «повними» (не duotone)
   const BOLD = new Set(['plus', 'x', 'check', 'chevron-right', 'arrow-right']);

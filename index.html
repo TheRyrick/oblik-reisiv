@@ -77,6 +77,7 @@
       <nav class="tabs ml-1 hidden sm:ml-3 md:flex" aria-label="Розділи">
         <a href="#" class="tab" data-tab="dashboard"><i data-lucide="layout-dashboard" class="h-4 w-4"></i><span>Панель</span></a>
         <a href="#trips" class="tab" data-tab="trips"><i data-lucide="list" class="h-4 w-4"></i><span>Рейси</span></a>
+        <a href="#owners" class="tab" data-tab="owners"><i data-lucide="key-round" class="h-4 w-4"></i><span>Власники</span></a>
       </nav>
 
       <div class="ml-auto flex items-center gap-2">
@@ -86,6 +87,8 @@
             <i data-lucide="database" class="h-4 w-4"></i><span class="hidden md:inline">Дані</span>
           </button>
           <div id="menu" class="dropdown hidden">
+            <button data-action="settings" class="dropdown-item md:hidden"><i data-lucide="settings-2" class="h-4 w-4"></i>Ставки</button>
+            <div class="my-1 h-px bg-white/5 md:hidden"></div>
             <button data-action="export-xlsx" class="dropdown-item"><i data-lucide="file-spreadsheet" class="h-4 w-4"></i>Рейси в Excel (.xlsx)</button>
             <button data-action="export-csv" class="dropdown-item"><i data-lucide="file-spreadsheet" class="h-4 w-4"></i>Рейси в CSV</button>
             <button data-action="export-json" class="dropdown-item"><i data-lucide="download" class="h-4 w-4"></i>Резервна копія (JSON)</button>
@@ -118,8 +121,8 @@
     <a href="#" class="bn-item" data-tab="dashboard"><i data-lucide="layout-dashboard"></i><span>Панель</span></a>
     <a href="#trips" class="bn-item" data-tab="trips"><i data-lucide="list"></i><span>Рейси</span></a>
     <button type="button" class="bn-add" data-action="add" aria-label="Новий рейс"><i data-lucide="plus"></i></button>
-    <button type="button" class="bn-item" data-action="refs"><i data-lucide="users"></i><span>Водії</span></button>
-    <button type="button" class="bn-item" data-action="settings"><i data-lucide="settings-2"></i><span>Ставки</span></button>
+    <a href="#owners" class="bn-item" data-tab="owners"><i data-lucide="key-round"></i><span>Власники</span></a>
+    <button type="button" class="bn-item" data-action="refs"><i data-lucide="users"></i><span>Авто</span></button>
   </nav>
 
   <main class="app-container mx-auto max-w-7xl space-y-6 px-4 pb-28 pt-6 sm:px-6 sm:pt-8 md:pb-8">
@@ -129,7 +132,7 @@
         <h1 id="viewTitle" class="page-title">Фінансова панель</h1>
         <p class="mt-1 text-sm text-slate-400" id="periodLabel">Усі рейси</p>
       </div>
-      <div class="filters grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+      <div id="filtersBox" class="filters grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
         <div class="select-wrap">
           <i data-lucide="calendar" class="h-4 w-4 text-slate-400"></i>
           <select id="yearFilter" class="select"></select>
@@ -145,6 +148,10 @@
         <div class="select-wrap">
           <i data-lucide="truck" class="h-4 w-4 text-slate-400"></i>
           <select id="carFilter" class="select"></select>
+        </div>
+        <div id="kindFilterWrap" class="select-wrap" style="display:none">
+          <i data-lucide="key-round" class="h-4 w-4 text-slate-400"></i>
+          <select id="kindFilter" class="select" aria-label="Тип авто"></select>
         </div>
       </div>
     </section>
@@ -183,6 +190,7 @@
           <span class="lg-item"><i class="lg-sw" style="background:#3987e5"></i>Витрати на рейс</span>
           <span class="lg-item"><i class="lg-sw" style="background:#199e70"></i>Зарплати</span>
           <span class="lg-item"><i class="lg-sw" style="background:#9085e9"></i>Компаньйону</span>
+          <span id="chartLegendCarOwner" class="lg-item hidden"><i class="lg-sw" style="background:#8c96a3"></i>Власникам авто</span>
           <span class="lg-item"><i class="lg-sw" style="background:#c98500"></i>Ваш прибуток</span>
         </div>
         <div id="chartBox" class="chart-box relative h-72 lg:h-auto lg:min-h-[18rem] lg:flex-1">
@@ -260,6 +268,7 @@
               <th class="th text-right">ЗП водія</th>
               <th class="th text-right">ЗП логіста</th>
               <th class="th text-right">Чистий</th>
+              <th id="thCarOwner" class="th text-right hidden" title="Авто під управлінням: нараховано власнику">Власнику</th>
               <th class="th text-right">Компаньйон</th>
               <th class="th text-right">Ваш</th>
               <th class="th"></th>
@@ -276,6 +285,9 @@
       <!-- Порожній список рейсів (вміст малює app.js) -->
       <div id="emptyState" class="hidden px-4 py-10 sm:px-6 sm:py-14"></div>
     </section>
+
+    <!-- ===== Вкладка: Власники (розрахунки за авто під управлінням) ===== -->
+    <section id="ownersView" class="hidden space-y-4" aria-live="polite"></section>
 
     <footer class="pb-6 text-center text-xs text-slate-500">
       Дані зберігаються в хмарі й доступні з будь-якого пристрою. Резервна копія — у меню «Дані».
@@ -311,6 +323,8 @@
                 <label class="field"><span>Водій</span><select name="driverId" class="input"></select></label>
                 <label class="field"><span>Авто</span><select name="carId" class="input"></select></label>
               </div>
+              <div id="mgmtInfo" class="mgmt-info mt-3 hidden"></div>
+              <label id="mgmtShareWrap" class="field mt-3 hidden sm:max-w-xs"><span>Ваша частка, % від прибутку до розподілу</span><input name="mgmtShare" type="number" inputmode="decimal" step="any" min="0" max="100" class="input" /></label>
               <p id="refsHint" class="mt-2 hidden text-xs text-slate-500">Список порожній — додайте водіїв та авто кнопкою <button type="button" class="text-indigo-300 underline" data-action="refs">«Водії та авто»</button>.</p>
             </fieldset>
 
@@ -453,9 +467,10 @@
           <label class="field"><span>Добові водія, грн за добу</span><input name="perDiem" type="number" step="any" min="0" class="input" /></label>
           <label class="field"><span>СТО, грн за добу</span><input name="stoRate" type="number" step="any" min="0" class="input" /></label>
           <label class="field"><span>Податок, % від суми безготівки</span><input name="taxRate" type="number" step="any" min="0" max="100" class="input" /></label>
-          <label class="field"><span>ЗП водія, % від прибутку авто (без СТО і податку)</span><input name="driverRate" type="number" step="any" min="0" max="100" class="input" /></label>
+          <label class="field"><span>ЗП водія, % від прибутку авто (без СТО, податку, ремонту)</span><input name="driverRate" type="number" step="any" min="0" max="100" class="input" /></label>
           <label class="field"><span>Компаньйон, % від чистого прибутку бізнесу</span><input name="partnerRate" type="number" step="any" min="0" max="100" class="input" /></label>
           <label class="field"><span>ЗП логіста, % від суми фрахту</span><input name="logistRate" type="number" step="any" min="0" max="100" class="input" /></label>
+          <label class="field"><span>Авто під управлінням: ваша частка за замовчуванням, %</span><input name="mgmtShare" type="number" step="any" min="0" max="100" class="input" /></label>
           <div class="preview-sep !my-4"></div>
           <label class="field"><span>Щомісячні витрати, грн за місяць</span><input name="monthlyExpenses" type="number" step="any" min="0" class="input" placeholder="0" /></label>
           <p class="text-xs text-slate-500">Віднімаються від чистого прибутку бізнесу та вашого прибутку за кожен місяць, у якому є рейси. На частку компаньйона не впливають. Діють одразу на всі місяці.</p>
@@ -495,13 +510,55 @@
             <form id="carForm" class="grid gap-2" novalidate>
               <input name="plate" type="text" class="input uppercase" placeholder="Держ. номер, напр. AA1234BB" maxlength="20" />
               <input name="brand" type="text" class="input" placeholder="Марка, напр. MAN TGX" maxlength="60" />
-              <button type="submit" class="btn-primary justify-center"><i data-lucide="plus" class="h-4 w-4"></i>Додати авто</button>
+              <label class="mgmt-toggle">
+                <input name="managed" type="checkbox" />
+                <span><b>Під управлінням</b> — авто не моє, ділю прибуток з власником</span>
+              </label>
+              <div id="carMgmtFields" class="hidden grid gap-2 rounded-xl border border-white/5 bg-white/[0.02] p-3">
+                <label class="field"><span>Власник авто</span><input name="ownerName" type="text" class="input" placeholder="Напр. Петренко Іван" maxlength="60" list="ownersList" autocomplete="off" /></label>
+                <label class="field"><span>Ваша частка, % від прибутку до розподілу</span><input name="mgmtShare" type="number" inputmode="decimal" step="any" min="0" max="100" class="input" /></label>
+                <p class="text-xs text-slate-500">Власнику — решта. Прибуток ділиться після всіх витрат (податок, СТО, ремонт). Компаньйон бере свій % від вашої частки.</p>
+              </div>
+              <datalist id="ownersList"></datalist>
+              <div class="flex gap-2">
+                <button type="button" id="carCancelEdit" class="btn-ghost hidden flex-1 justify-center">Скасувати</button>
+                <button type="submit" id="carSubmit" class="btn-primary flex-1 justify-center"><i data-lucide="plus" class="h-4 w-4"></i><span>Додати авто</span></button>
+              </div>
             </form>
             <ul id="carsList" class="mt-4 space-y-2"></ul>
           </section>
         </div>
         <p class="border-t border-white/5 px-5 py-3 text-xs text-slate-500">Якщо видалити водія чи авто, у вже збережених рейсах їхнє ім'я/номер залишиться.</p>
       </div>
+    </div>
+  </div>
+
+  <!-- ============ Модалка: виплата власнику авто ============ -->
+  <div id="payoutModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="payoutTitle">
+    <div class="modal-backdrop" data-close></div>
+    <div class="modal-panel max-w-md">
+      <form id="payoutForm" class="max-h-[100dvh] overflow-y-auto p-5 sm:max-h-[92vh]" novalidate>
+        <div class="mb-4 flex items-center justify-between">
+          <h3 id="payoutTitle" class="text-lg font-bold text-white">Розрахунок з власником</h3>
+          <button type="button" class="icon-btn" data-close aria-label="Закрити"><i data-lucide="x" class="h-5 w-5"></i></button>
+        </div>
+        <div id="payoutBalance" class="mb-4"></div>
+        <div class="space-y-3">
+          <div class="seg-toggle" role="radiogroup" aria-label="Хто кому платить">
+            <label><input type="radio" name="dir" value="out" checked /><span>Я виплатив власнику</span></label>
+            <label><input type="radio" name="dir" value="in" /><span>Власник повернув мені</span></label>
+          </div>
+          <label class="field"><span>Дата</span><input name="date" type="date" class="input" required /></label>
+          <label class="field"><span>Сума, грн</span><input name="amount" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" required /></label>
+          <div id="payoutQuick" class="flex flex-wrap gap-2"></div>
+          <label class="field"><span>Коментар <em class="not-italic text-slate-500">(необовʼязково)</em></span><input name="note" type="text" class="input" maxlength="200" placeholder="Напр. розрахунок за жовтень, готівкою" /></label>
+          <p id="payoutError" class="hidden rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200"></p>
+        </div>
+        <div class="mt-6 flex justify-end gap-2">
+          <button type="button" class="btn-ghost" data-close>Скасувати</button>
+          <button type="submit" class="btn-primary"><i data-lucide="check" class="h-4 w-4"></i>Записати</button>
+        </div>
+      </form>
     </div>
   </div>
 

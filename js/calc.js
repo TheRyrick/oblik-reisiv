@@ -12,6 +12,7 @@
     stoRate: 330,   // СТО, грн/доба
     logistRate: 10, // ЗП логіста, % від фрахту
     monthlyExpenses: 0, // щомісячні витрати бізнесу, грн/міс
+    mgmtShare: 30,  // авто під управлінням: ваша частка, % від прибутку до розподілу
   });
 
   /** Безпечне перетворення у число (підтримує кому як десятковий роздільник). */
@@ -83,15 +84,24 @@
     const repair = num(t.repairExpenses);
 
     // Прибуток авто — база для ЗП водія (паливо за ціною для водія), до виплати ЗП.
-    // СТО і податок на ЗП водія не впливають — вони віднімаються лише від прибутку бізнесу.
-    const carProfit = freight - fuelCostDriver - perDiem - other - repair;
+    // СТО, податок і ремонт на ЗП водія не впливають — вони віднімаються лише від прибутку бізнесу.
+    const carProfit = freight - fuelCostDriver - perDiem - other;
     // ЗП водія — % від прибутку авто (якщо рейс збитковий — 0)
     const driverPay = carProfit > 0 ? carProfit * (driverRate / 100) : 0;
     // ЗП логіста — % від суми фрахту (не впливає на ЗП водія)
     const logistPay = freight * (logistRate / 100);
-    // Чистий прибуток бізнесу = Прибуток авто + знижка на паливо − податок − СТО − ЗП водія − ЗП логіста
-    const netProfit = carProfit + fuelDiscount - tax - sto - driverPay - logistPay;
-    // Частка компаньйона — % від чистого прибутку бізнесу (якщо збиток — 0)
+    // Прибуток після всіх витрат = Прибуток авто + знижка на паливо − податок − СТО − ремонт − ЗП водія − ЗП логіста
+    const profitAll = carProfit + fuelDiscount - tax - sto - repair - driverPay - logistPay;
+    // Авто під управлінням (не ваше): увесь прибуток після витрат ділиться з власником авто.
+    // Податок, СТО і ремонт віднімаються до розподілу — тобто діляться за частками (і збиток теж).
+    const managed = !!t.managed;
+    const mgmtShare = managed ? Math.min(100, Math.max(0, t.mgmtShare !== undefined && t.mgmtShare !== '' ? num(t.mgmtShare) : num(r.mgmtShare))) : 100;
+    // Прибуток до розподілу (для авто під управлінням) і чистий прибуток вашого бізнесу
+    const pool = managed ? profitAll : 0;
+    const netProfit = managed ? profitAll * (mgmtShare / 100) : profitAll;
+    // Власнику авто: решта прибутку до розподілу
+    const carOwnerShare = managed ? profitAll - netProfit : 0;
+    // Частка компаньйона — % від чистого прибутку бізнесу (для авто в управлінні — від вашої частки); якщо збиток — 0
     const partnerShare = netProfit > 0 ? netProfit * (partnerRate / 100) : 0;
     // Ваш прибуток — чистий прибуток бізнесу після виплати компаньйону
     const ownerProfit = netProfit - partnerShare;
@@ -119,10 +129,13 @@
       netProfit: round2(netProfit),
       partnerShare: round2(partnerShare),
       ownerProfit: round2(ownerProfit),
+      managed, mgmtShare,
+      pool: round2(pool),
+      carOwnerShare: round2(carOwnerShare),
       totalExpenses: round2(totalExpenses),
       pricePerKm: round2(pricePerKm),
       profitPerKm: round2(profitPerKm),
-      rates: { perDiem: perDiemRate, taxRate, driverRate, partnerRate, stoRate, logistRate },
+      rates: { perDiem: perDiemRate, taxRate, driverRate, partnerRate, stoRate, logistRate, mgmtShare },
     };
   }
 
@@ -136,13 +149,23 @@
     const s = {
       count: 0, km: 0, days: 0, fuelLiters: 0, freight: 0, cash: 0, bank: 0, card: 0, received: 0, dispatch: 0,
       fuelCost: 0, fuelCostDriver: 0, fuelDiscount: 0, tax: 0, perDiem: 0, sto: 0, other: 0, repair: 0, carProfit: 0, driverPay: 0, logistPay: 0, netProfit: 0,
-      partnerShare: 0, ownerProfit: 0,
+      partnerShare: 0, ownerProfit: 0, carOwnerShare: 0,
+      // Розбивка: свої авто / авто під управлінням
+      ownCount: 0, ownNet: 0,
+      mgmtCount: 0, mgmtFreight: 0, mgmtPool: 0, mgmtNet: 0,
     };
+    const SUM = ['km', 'days', 'fuelLiters', 'freight', 'cash', 'bank', 'card', 'received', 'dispatch', 'fuelCost', 'fuelCostDriver', 'fuelDiscount',
+      'tax', 'perDiem', 'sto', 'other', 'repair', 'carProfit', 'driverPay', 'logistPay', 'netProfit', 'partnerShare', 'ownerProfit', 'carOwnerShare'];
     const months = new Set();
     for (const t of trips) {
       const c = calcTrip(t, rates);
       s.count++;
-      for (const k of Object.keys(s)) if (k !== 'count') s[k] += c[k];
+      for (const k of SUM) s[k] += c[k];
+      if (c.managed) {
+        s.mgmtCount++; s.mgmtFreight += c.freight; s.mgmtPool += c.pool; s.mgmtNet += c.netProfit;
+      } else {
+        s.ownCount++; s.ownNet += c.netProfit;
+      }
       const m = (t.startDate || '').slice(0, 7);
       if (m) months.add(m);
     }
@@ -160,7 +183,65 @@
     return s;
   }
 
-  const api = { DEFAULTS, num, daysBetween, calcTrip, summarize };
+  /** Ключ власника авто: імʼя без зайвих пробілів і без різниці великих/малих літер. */
+  function ownerKey(name) {
+    return String(name || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('uk');
+  }
+
+  /**
+   * Розрахунки з власниками авто під управлінням.
+   * Нараховано — сума «Власнику авто» по всіх його рейсах; виплати вносяться вручну, коли розраховуєтесь.
+   * payout.amount > 0 — ви виплатили власнику; < 0 — власник повернув вам.
+   * Повертає масив { key, name, trips[], payouts[], accrued, paid, balance, months[] }.
+   * balance > 0 — ви винні власнику; < 0 — власник винен вам.
+   */
+  function ownerLedger(trips, payouts, rates) {
+    const map = new Map();
+    const get = (name) => {
+      const key = ownerKey(name);
+      if (!key) return null;
+      if (!map.has(key)) map.set(key, { key, name: String(name).trim().replace(/\s+/g, ' '), trips: [], payouts: [], accrued: 0, paid: 0, balance: 0, months: [] });
+      return map.get(key);
+    };
+    const monthsMap = new Map();
+    for (const t of trips || []) {
+      if (!t.managed) continue;
+      const o = get(t.ownerName);
+      if (!o) continue;
+      const c = calcTrip(t, rates);
+      o.trips.push({ t, c });
+      o.accrued += c.carOwnerShare;
+      const m = (t.startDate || '').slice(0, 7);
+      const mk = o.key + '|' + m;
+      if (!monthsMap.has(mk)) {
+        const row = { month: m, count: 0, freight: 0, pool: 0, my: 0, carOwnerShare: 0 };
+        monthsMap.set(mk, row);
+        o.months.push(row);
+      }
+      const row = monthsMap.get(mk);
+      row.count++; row.freight += c.freight; row.pool += c.pool; row.my += c.netProfit;
+      row.carOwnerShare += c.carOwnerShare;
+    }
+    for (const p of payouts || []) {
+      const o = get(p.owner);
+      if (!o) continue;
+      o.payouts.push(p);
+      o.paid += num(p.amount);
+    }
+    const out = Array.from(map.values());
+    for (const o of out) {
+      o.accrued = round2(o.accrued);
+      o.paid = round2(o.paid);
+      o.balance = round2(o.accrued - o.paid);
+      o.months.sort((a, b) => b.month.localeCompare(a.month));
+      for (const r of o.months) for (const k of ['freight', 'pool', 'my', 'carOwnerShare']) r[k] = round2(r[k]);
+      o.payouts.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0));
+      o.trips.sort((a, b) => (b.t.startDate || '').localeCompare(a.t.startDate || ''));
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name, 'uk'));
+  }
+
+  const api = { DEFAULTS, num, daysBetween, calcTrip, summarize, ownerKey, ownerLedger };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.Calc = api;
 })(typeof window !== 'undefined' ? window : globalThis);
