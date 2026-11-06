@@ -521,6 +521,7 @@
     return `
       <button class="icon-btn" data-edit="${escapeHtml(id)}" title="Редагувати"><i data-lucide="pencil" class="h-4 w-4"></i></button>
       <button class="icon-btn" data-xlsx="${escapeHtml(id)}" title="Скачати рейс в Excel" aria-label="Скачати рейс в Excel"><i data-lucide="file-spreadsheet" class="h-4 w-4"></i></button>
+      <button class="icon-btn" data-trip-pdf="${escapeHtml(id)}" title="Рейс у PDF" aria-label="Рейс у PDF"><i data-lucide="file-text" class="h-4 w-4"></i></button>
       <button class="icon-btn" data-copy="${escapeHtml(id)}" title="Дублювати"><i data-lucide="copy" class="h-4 w-4"></i></button>
       <button class="icon-btn danger" data-del="${escapeHtml(id)}" title="Видалити"><i data-lucide="trash-2" class="h-4 w-4"></i></button>`;
   }
@@ -1259,6 +1260,146 @@
     toast('ТО записано');
   }
 
+  // ---------- Документи для друку / PDF ----------
+  // Світлий шаблон: відкривається в новій вкладці, кнопка «Зберегти PDF» викликає друк браузера
+  // (там можна вибрати «Зберегти як PDF»). Назва вкладки стає назвою файлу.
+  const PRINT_CSS = `
+  *{box-sizing:border-box} body{font:13px/1.45 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#1b2027;margin:0;padding:28px;background:#fff}
+  h1{font-size:22px;margin:0} h2{font-size:15px;margin:26px 0 8px;padding-bottom:4px;border-bottom:2px solid #efba18}
+  .muted{color:#5b636d} .r{text-align:right;white-space:nowrap} .b{font-weight:700} .neg{color:#c0392b} .pos{color:#1e8a57}
+  table{width:100%;border-collapse:collapse;margin-top:4px} th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#5b636d;text-align:left;border-bottom:1px solid #d8d8d2;padding:6px 6px}
+  td{padding:5px 6px;border-bottom:1px solid #eeeeea;vertical-align:top} tfoot td{font-weight:700;border-top:2px solid #1b2027;border-bottom:0}
+  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px} .kpi{border:1px solid #e2e2dc;border-radius:8px;padding:10px 12px}
+  .kpi small{display:block;color:#5b636d;font-size:11px} .kpi b{font-size:18px} .kpi.main{background:#fff8de;border-color:#efba18}
+  .bar{height:16px;display:flex;border-radius:4px;overflow:hidden;margin:8px 0 4px} .bar i{display:block;height:100%}
+  .legend span{display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:11px} .legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
+  .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px} .tools{position:sticky;top:0;background:#fff;padding:8px 0 12px;display:flex;gap:8px}
+  .tools button{font:inherit;font-weight:600;padding:9px 16px;border-radius:8px;border:1px solid #1b2027;background:#efba18;cursor:pointer} .tools button.sec{background:#fff}
+  .plate{display:inline-flex;align-items:stretch;border:2px solid #1b2027;border-radius:6px;overflow:hidden;background:#fff;vertical-align:middle}
+  .plate i{display:flex;align-items:flex-end;padding:0 5px 3px;background:#0057b8;color:#ffd500;font:700 9px/1 system-ui,sans-serif;font-style:normal}
+  .plate b{padding:3px 10px;font:800 22px/1.1 system-ui,sans-serif;letter-spacing:.06em}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 26px} .kv td:first-child{color:#5b636d} .kv td:last-child{text-align:right;font-weight:600}
+  .calc td.op{width:18px;color:#5b636d;text-align:center} .calc tr.sum td{font-weight:700;border-top:2px solid #1b2027}
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0} .split div{border:1px solid #e2e2dc;border-radius:8px;padding:8px 12px} .split div.me{background:#eefaf3;border-color:#9fd8b8}
+  .split small{display:block;color:#5b636d;font-size:11px} .split b{font-size:16px}
+  .result{margin-top:12px;border:2px solid #efba18;background:#fff8de;border-radius:10px;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .result b{font-size:24px;white-space:nowrap}
+  @media print{body{padding:0}.tools{display:none} h2{break-after:avoid} tr,.split,.result,.kpis{break-inside:avoid} @page{size:A4;margin:14mm}}
+  @media (max-width:640px){body{padding:14px}.kpis{grid-template-columns:1fr 1fr}.grid2{grid-template-columns:1fr} table{font-size:11px}}
+`;
+
+  function printDocument(title, body) {
+    const html = `<!DOCTYPE html><html lang="uk"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${escapeHtml(title)}</title><style>${PRINT_CSS}</style></head><body>
+<div class="tools"><button onclick="window.print()">Зберегти PDF / Друк</button><button class="sec" onclick="window.close()">Закрити</button></div>
+${body}
+<script>window.addEventListener('load',function(){setTimeout(function(){window.print()},350)});<\/script>
+</body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) return toast('Браузер заблокував нове вікно — дозвольте спливаючі вікна для сайту', 'err');
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+  }
+
+  /** PDF одного рейсу: як картка рейсу, у світлому вигляді для друку. */
+  function openTripPdf(id) {
+    const t = trips.find((x) => x.id === id);
+    if (!t) return;
+    const c = calcTrip(t, settings);
+    const r = c.rates;
+    const E = escapeHtml;
+    const M = (v) => E(uah2(v));
+    const pctTxt = (x) => fmtL.format(x) + '%';
+    const { plate, brand } = tripPlate(t);
+    const kv = (rows) => `<table class="kv"><tbody>${rows.filter(Boolean).map(([k, v, cls]) => `<tr><td>${E(k)}</td><td class="${cls || ''}">${v}</td></tr>`).join('')}</tbody></table>`;
+    const line = (op, label, v, cls) => `<tr class="${cls || ''}"><td class="op">${op}</td><td>${E(label)}</td><td class="r${v < 0 ? ' neg' : ''}">${M(v)}</td></tr>`;
+
+    const calcRows = [
+      line('', 'Фрахт', c.freight),
+      line('−', 'Паливо за ціною для водія', c.fuelCostDriver),
+      line('−', `Добові ${fmtInt.format(r.perDiem)} × ${c.days}`, c.perDiem),
+      c.other ? line('−', 'Інші витрати (дороги, стоянки)', c.other) : '',
+      line('=', 'Прибуток авто (база для ЗП водія)', c.carProfit, 'sum'),
+      c.fuelDiscount ? line(c.fuelDiscount >= 0 ? '+' : '−', 'Знижка на паливо', Math.abs(c.fuelDiscount)) : '',
+      line('−', `ЗП водія ${pctTxt(r.driverRate)} від прибутку авто`, c.driverPay),
+      line('−', `ЗП логіста ${pctTxt(r.logistRate)} від фрахту`, c.logistPay),
+      line('−', `Податок ${pctTxt(r.taxRate)} від безналу`, c.tax),
+      line('−', `СТО ${fmtInt.format(r.stoRate)} × ${c.days}`, c.sto),
+      c.repair ? line('−', 'Ремонт', c.repair) : '',
+      line('=', c.managed ? 'Прибуток до розподілу' : 'Чистий прибуток бізнесу', c.managed ? c.pool : c.netProfit, 'sum'),
+    ].join('');
+
+    const body = `
+<div class="top">
+  <div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${plate ? `<span class="plate"><i>UA</i><b>${E(plate)}</b></span>` : ''}${brand ? `<span style="font-size:16px;font-weight:600">${E(brand)}</span>` : ''}${t.managed ? '<span class="muted">· авто під управлінням</span>' : ''}</div>
+    <h1 style="margin-top:10px">${tripDates(t)}</h1>
+    <div class="muted">${E(t.route || 'Без маршруту')}</div>
+  </div>
+  <div class="muted r">Рейс · ${E(String(c.days))} ${E(plural(c.days, 'доба', 'доби', 'діб'))} · ${E(fmtInt.format(c.km))} км<br>сформовано ${E(fmtDate(today()))}</div>
+</div>
+
+<div class="kpis">
+  <div class="kpi"><small>Фрахт</small><b>${M(c.freight)}</b></div>
+  <div class="kpi"><small>${c.managed ? `Ваша частка ${E(pctTxt(c.mgmtShare))}` : 'Чистий прибуток бізнесу'}</small><b class="${c.netProfit < 0 ? 'neg' : ''}">${M(c.netProfit)}</b></div>
+  <div class="kpi main"><small>Ваш прибуток</small><b class="${c.ownerProfit < 0 ? 'neg' : ''}">${M(c.ownerProfit)}</b></div>
+</div>
+
+<div class="grid2">
+  <section><h2>Водій та авто</h2>${kv([
+    ['Водій', E(tripDriver(t) || '—')],
+    ['Авто', E(tripCar(t) || '—')],
+    t.managed ? ['Власник авто', E(t.ownerName || '—') + ` · ваша частка ${E(pctTxt(c.mgmtShare))}`] : null,
+    ['Нотатка', E(t.note || '—')],
+  ])}</section>
+  <section><h2>Пробіг</h2>${kv([
+    ['Діб у рейсі', E(String(c.days))],
+    ['Одометр початок', E(fmtInt.format(num(t.odoStart))) + ' км'],
+    ['Одометр кінець', E(fmtInt.format(num(t.odoEnd))) + ' км'],
+    ['Км за рейс', E(fmtInt.format(c.km)) + ' км'],
+  ])}</section>
+  <section><h2>Паливо</h2>${kv([
+    ['Витрата', E(fmtL.format(c.fuelLiters)) + ' л · ' + E(fmtL.format(c.fuelPer100)) + ' л/100 км'],
+    ['Ціна для водія', M(c.fuelPrice) + '/л'],
+    ['Фактична ціна', M(c.fuelPriceActual) + '/л'],
+    ['Сума для водія', M(c.fuelCostDriver)],
+    ['Сума фактична', M(c.fuelCost)],
+    ['Знижка (економія)', M(c.fuelDiscount), c.fuelDiscount > 0 ? 'pos' : ''],
+  ])}</section>
+  <section><h2>Фрахт</h2>${kv([
+    ['Готівка', M(c.cash)],
+    ['Безнал', M(c.bank)],
+    ['Карта', M(c.card)],
+    c.dispatch ? ['Отримано всього', M(c.received)] : null,
+    c.dispatch ? ['Диспетчерські', '− ' + M(c.dispatch)] : null,
+    ['Сума фрахту', '<b>' + M(c.freight) + '</b>'],
+    ['Ціна за 1 км', M(c.pricePerKm)],
+  ])}</section>
+</div>
+
+<h2>Розрахунок прибутку</h2>
+<table class="calc"><tbody>${calcRows}</tbody></table>
+${c.managed ? `
+<div class="split">
+  <div><small>Власнику авто ${E(pctTxt(100 - c.mgmtShare))}</small><b class="${c.carOwnerShare < 0 ? 'neg' : ''}">${M(c.carOwnerShare)}</b></div>
+  <div class="me"><small>Ваша частка ${E(pctTxt(c.mgmtShare))}</small><b class="${c.netProfit < 0 ? 'neg' : ''}">${M(c.netProfit)}</b></div>
+</div>` : ''}
+<table class="calc"><tbody>
+  ${line('−', `Компаньйону ${pctTxt(r.partnerRate)}${c.managed ? ' від вашої частки' : ''}`, c.partnerShare)}
+</tbody></table>
+<div class="result"><span>Ваш прибуток з рейсу<br><small class="muted">${E(fmtDec.format(c.profitPerKm))} ₴ чистого прибутку бізнесу з кожного км</small></span><b class="${c.ownerProfit < 0 ? 'neg' : ''}">${M(c.ownerProfit)}</b></div>
+
+<h2>Усі витрати рейсу</h2>
+${kv([
+  ['Паливо (фактично)', M(c.fuelCost)], ['Податок', M(c.tax)], ['Добові', M(c.perDiem)], ['СТО', M(c.sto)],
+  c.repair ? ['Ремонт', M(c.repair)] : null, c.other ? ['Інші витрати', M(c.other)] : null,
+  ['ЗП водія', M(c.driverPay)], ['ЗП логіста', M(c.logistPay)], ['Разом', '<b>' + M(c.totalExpenses) + '</b>'],
+])}
+<p class="muted" style="margin-top:16px">Ставки рейсу: добові ${E(fmtInt.format(r.perDiem))} ₴/доба · СТО ${E(fmtInt.format(r.stoRate))} ₴/доба · податок ${E(pctTxt(r.taxRate))} · ЗП водія ${E(pctTxt(r.driverRate))} · логіст ${E(pctTxt(r.logistRate))} · компаньйон ${E(pctTxt(r.partnerRate))}${c.managed ? ' · ваша частка ' + E(pctTxt(c.mgmtShare)) : ''}.</p>`;
+    printDocument(['Рейс', plate, t.startDate].filter(Boolean).join(' '), body);
+  }
+
   // ---------- Звіт за період (PDF через друк браузера) ----------
   function openPdfReport() {
     const list = filteredTrips();
@@ -1294,25 +1435,7 @@
     const table = (head, body, foot) => `<table><thead><tr>${head.map((h) => `<th class="${h[1] || ''}">${E(h[0])}</th>`).join('')}</tr></thead><tbody>${body}</tbody>${foot ? `<tfoot>${foot}</tfoot>` : ''}</table>`;
     const tr = (cells) => `<tr>${cells.map((c) => `<td class="${c[1] || ''}">${c[0]}</td>`).join('')}</tr>`;
 
-    const html = `<!DOCTYPE html><html lang="uk"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${E('Звіт — ' + period)}</title>
-<style>
-  *{box-sizing:border-box} body{font:13px/1.45 system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;color:#1b2027;margin:0;padding:28px;background:#fff}
-  h1{font-size:22px;margin:0} h2{font-size:15px;margin:26px 0 8px;padding-bottom:4px;border-bottom:2px solid #efba18}
-  .muted{color:#5b636d} .r{text-align:right;white-space:nowrap} .b{font-weight:700} .neg{color:#c0392b} .pos{color:#1e8a57}
-  table{width:100%;border-collapse:collapse;margin-top:4px} th{font-size:11px;text-transform:uppercase;letter-spacing:.03em;color:#5b636d;text-align:left;border-bottom:1px solid #d8d8d2;padding:6px 6px}
-  td{padding:5px 6px;border-bottom:1px solid #eeeeea;vertical-align:top} tfoot td{font-weight:700;border-top:2px solid #1b2027;border-bottom:0}
-  .kpis{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:14px} .kpi{border:1px solid #e2e2dc;border-radius:8px;padding:10px 12px}
-  .kpi small{display:block;color:#5b636d;font-size:11px} .kpi b{font-size:18px} .kpi.main{background:#fff8de;border-color:#efba18}
-  .bar{height:16px;display:flex;border-radius:4px;overflow:hidden;margin:8px 0 4px} .bar i{display:block;height:100%}
-  .legend span{display:inline-flex;align-items:center;gap:4px;margin-right:12px;font-size:11px} .legend i{width:10px;height:10px;border-radius:2px;display:inline-block}
-  .top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px} .tools{position:sticky;top:0;background:#fff;padding:8px 0 12px;display:flex;gap:8px}
-  .tools button{font:inherit;font-weight:600;padding:9px 16px;border-radius:8px;border:1px solid #1b2027;background:#efba18;cursor:pointer} .tools button.sec{background:#fff}
-  @media print{body{padding:0}.tools{display:none} h2{break-after:avoid} tr{break-inside:avoid} @page{size:A4;margin:14mm}}
-  @media (max-width:640px){body{padding:14px}.kpis{grid-template-columns:1fr 1fr} table{font-size:11px}}
-</style></head><body>
-<div class="tools"><button onclick="window.print()">Зберегти PDF / Друк</button><button class="sec" onclick="window.close()">Закрити</button></div>
-<div class="top"><div><h1>Звіт: ${E(period)}</h1><div class="muted">Облік рейсів · сформовано ${E(fmtDate(today()))}</div></div>
+    const body = `<div class="top"><div><h1>Звіт: ${E(period)}</h1><div class="muted">Облік рейсів · сформовано ${E(fmtDate(today()))}</div></div>
 <div class="muted r">${s.count} ${E(plural(s.count, 'рейс', 'рейси', 'рейсів'))} · ${E(fmtInt.format(s.km))} км · ${E(fmtInt.format(s.days))} ${E(plural(s.days, 'доба', 'доби', 'діб'))}</div></div>
 
 <div class="kpis">
@@ -1355,13 +1478,8 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
   rows.map(({ t, c }) => tr([[tripDates(t)], [E(tripPlate(t).plate || '—') + (c.managed ? ' <span class="muted">(у)</span>' : '')], [E(tripDriver(t) || '—')], [E(t.route || '—')], [E(fmtInt.format(c.km)), 'r'], [M(c.freight), 'r'], [M(c.netProfit), 'r' + (c.netProfit < 0 ? ' neg' : '')], [M(c.ownerProfit), 'r b' + (c.ownerProfit < 0 ? ' neg' : '')]])).join(''),
   tr([['Разом'], [''], [''], [''], [E(fmtInt.format(s.km)), 'r'], [M(s.freight), 'r'], [M(rows.reduce((a, x) => a + x.c.netProfit, 0)), 'r'], [M(rows.reduce((a, x) => a + x.c.ownerProfit, 0)), 'r']]))}
 <p class="muted">«Чистий» і «Ваш» у таблиці рейсів — до витрат бізнесу (${M(s.monthlyExpenses)}); у підсумку вгорі їх уже віднято.</p>` : ''}
-<script>window.addEventListener('load',function(){setTimeout(function(){window.print()},350)});<\/script>
-</body></html>`;
-    const w = window.open('', '_blank');
-    if (!w) return toast('Браузер заблокував нове вікно — дозвольте спливаючі вікна для сайту', 'err');
-    w.document.open();
-    w.document.write(html);
-    w.document.close();
+`;
+    printDocument('Звіт — ' + period, body);
   }
 
   // ---------- Перегляд рейсу ----------
@@ -1472,6 +1590,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     openTripForm(id);
   });
   $('#viewXlsx').addEventListener('click', () => exportTripXlsx(viewingId));
+  $('#viewPdf').addEventListener('click', () => openTripPdf(viewingId));
   $('#viewCopy').addEventListener('click', () => {
     const id = viewingId;
     closeModal($('#viewModal'));
@@ -2823,6 +2942,8 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
 
     const edit = e.target.closest('[data-edit]');
     if (edit) return openTripForm(edit.dataset.edit);
+    const tp = e.target.closest('[data-trip-pdf]');
+    if (tp) return openTripPdf(tp.dataset.tripPdf);
     const xl = e.target.closest('[data-xlsx]');
     if (xl) return exportTripXlsx(xl.dataset.xlsx);
     const copy = e.target.closest('[data-copy]');

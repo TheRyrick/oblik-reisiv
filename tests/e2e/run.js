@@ -196,6 +196,26 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
     check('PDF: звіт сформовано з усіма розділами', ['Куди пішов фрахт', 'Авто', 'Водії', 'Авто під управлінням', 'Витрати бізнесу', 'Борги станом на', 'Рейси'].every((x) => pdf.includes(x)), pdf.length);
     check('PDF: небезпечний текст екрановано', !pdf.includes('<img src=x') , '');
 
+    // ===== PDF одного рейсу =====
+    const grab = (click) => ev(`
+      let html = ''; const real = window.open;
+      window.open = () => ({ document: { open() {}, write(h) { html += h; }, close() {} } });
+      ${click}
+      window.open = real;
+      return html;`);
+    await go('#trips');
+    const tp = await grab(`document.querySelector('[data-trip-pdf="t3"]').click();`);
+    check('PDF рейсу: кнопка в списку, усі розділи', ['BC7777AK', 'Розрахунок прибутку', 'Прибуток до розподілу', 'Власнику авто 70%', 'Ваша частка 30%', 'Ваш прибуток з рейсу', 'Усі витрати рейсу'].every((x) => tp.includes(x)), tp.length);
+    check('PDF рейсу: нотатка з кодом екранована', !tp.includes('<img src=x') && tp.includes('&lt;img'), '');
+    check('PDF рейсу: назва файлу з номером і датою', /<title>Рейс BC7777AK 2026-11-02<\/title>/.test(tp), tp.slice(0, 300));
+    await ev(`document.querySelector('[data-open="t1"]').click()`); await sleep(300);
+    const tv = await grab(`document.querySelector('#viewPdf').click();`);
+    const t1 = await ev(`const c = Calc.calcTrip(Cloud._cache.trips.find((t) => t.id === 't1'), Object.assign({}, Calc.DEFAULTS, Cloud._cache.settings)); return { owner: c.ownerProfit, net: c.netProfit }`);
+    const fmt2 = (v) => new Intl.NumberFormat('uk-UA', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(v);
+    check('PDF рейсу: з картки рейсу, своє авто, цифри збігаються', tv.includes('AA1234BB') && tv.includes('Чистий прибуток бізнесу') && !tv.includes('Власнику авто') && tv.includes(fmt2(t1.owner)) && tv.includes(fmt2(t1.net)), t1);
+    await ev(`document.querySelector('#viewModal [data-close]').click()`);
+    await go('');
+
     // ===== Рейс на авто під управлінням =====
     await ev(`document.querySelector('#addTripBtn').click()`); await sleep(250);
     await ev(`const f = document.querySelector('#tripForm'); f.carId.value = 'c2'; f.carId.dispatchEvent(new Event('change', { bubbles: true })); f.odoStart.value = 52000; f.odoEnd.value = 52500; f.bank.value = 30000; f.dispatchEvent(new Event('input', { bubbles: true }))`); await sleep(200);
