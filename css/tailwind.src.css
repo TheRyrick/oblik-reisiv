@@ -1,0 +1,4 @@
+/* Джерело для Tailwind: зібраний результат — css/tailwind.css (npm run css). Не підключайте цей файл на сторінці. */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;

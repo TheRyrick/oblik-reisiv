@@ -6,5 +6,5 @@ sh tools/build-env.sh
 rm -rf build
 mkdir build
 cp -r index.html robots.txt .nojekyll css js img build/
-rm -f build/js/env.example.js
+rm -f build/js/env.example.js build/css/tailwind.src.css
 echo "Сайт зібрано в папку build/"

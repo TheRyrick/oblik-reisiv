@@ -139,12 +139,16 @@
     };
   }
 
+  /** Місяць запису «РРРР-ММ» або '' (захист від сміття в датах). */
+  const monthOf = (d) => { const m = String(d || '').slice(0, 7); return /^\d{4}-\d{2}$/.test(m) ? m : ''; };
+
   /**
    * Сумарні показники за набір рейсів.
-   * Щомісячні витрати (rates.monthlyExpenses, грн) віднімаються від чистого прибутку бізнесу
-   * один раз за кожен місяць, у якому є рейси (за датою початку рейсу).
+   * Витрати бізнесу зменшують чистий прибуток бізнесу та ваш прибуток, але НЕ частку компаньйона:
+   *  - постійні щомісячні (rates.monthlyExpenses, грн) — один раз за кожен місяць, у якому є рейси;
+   *  - записи з вкладки «Витрати» (opts.expenses — уже відібрані за періодом) — за категоріями.
    */
-  function summarize(trips, rates) {
+  function summarize(trips, rates, opts) {
     const r = Object.assign({}, DEFAULTS, rates || {});
     const s = {
       count: 0, km: 0, days: 0, fuelLiters: 0, freight: 0, cash: 0, bank: 0, card: 0, received: 0, dispatch: 0,
@@ -166,17 +170,29 @@
       } else {
         s.ownCount++; s.ownNet += c.netProfit;
       }
-      const m = (t.startDate || '').slice(0, 7);
+      const m = monthOf(t.startDate);
       if (m) months.add(m);
     }
-    // Щомісячні витрати бізнесу — зменшують чистий прибуток бізнесу та ваш прибуток,
-    // але НЕ впливають на частку компаньйона (вона рахується з прибутку до щомісячних витрат)
     s.months = months.size;
     s.monthlyRate = num(r.monthlyExpenses);
-    s.monthlyExpenses = s.months * s.monthlyRate;
+    s.monthlyFlat = s.months * s.monthlyRate;
+    // Витрати бізнесу за категоріями
+    const byCat = new Map();
+    let entries = 0;
+    for (const e of (opts && opts.expenses) || []) {
+      const a = num(e.amount);
+      if (!a) continue;
+      entries += a;
+      const cat = String(e.category || '').trim() || 'Інше';
+      byCat.set(cat, (byCat.get(cat) || 0) + a);
+    }
+    s.bizEntries = entries;
+    s.bizByCat = Array.from(byCat, ([category, amount]) => ({ category, amount: round2(amount) })).sort((a, b) => b.amount - a.amount);
+    // monthlyExpenses — усі витрати бізнесу разом (постійні + записи)
+    s.monthlyExpenses = s.monthlyFlat + s.bizEntries;
     s.netProfit -= s.monthlyExpenses;
     s.ownerProfit = s.netProfit - s.partnerShare;
-    for (const k of Object.keys(s)) s[k] = round2(s[k]);
+    for (const k of Object.keys(s)) if (typeof s[k] === 'number') s[k] = round2(s[k]);
     s.pricePerKm = s.km > 0 ? round2(s.freight / s.km) : 0;
     s.fuelPer100 = s.km > 0 ? round2((s.fuelLiters / s.km) * 100) : 0;
     s.totalExpenses = round2(s.fuelCost + s.tax + s.perDiem + s.sto + s.other + s.repair + s.driverPay + s.logistPay + s.monthlyExpenses);
@@ -187,61 +203,207 @@
   function ownerKey(name) {
     return String(name || '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('uk');
   }
+  const cleanName = (s) => String(s || '').trim().replace(/\s+/g, ' ');
+
+  /** Вид запису розрахунку: старі записи без kind — це власники авто. */
+  const payoutKind = (p) => (p && (p.kind === 'partner' || p.kind === 'driver') ? p.kind : 'owner');
+  /** Ключ сторони розрахунку для запису виплати. */
+  function payoutParty(p) {
+    const kind = payoutKind(p);
+    if (kind === 'partner') return 'partner';
+    if (kind === 'driver') return p.party ? String(p.party) : 'n:' + ownerKey(p.name);
+    return ownerKey(p.owner || p.name);
+  }
+  /** Ключ водія рейсу: id з довідника, або імʼя (якщо водія вже видалено і id немає). */
+  const driverKeyOf = (t) => (t.driverId ? String(t.driverId) : t.driverName ? 'n:' + ownerKey(t.driverName) : '');
 
   /**
-   * Розрахунки з власниками авто під управлінням.
-   * Нараховано — сума «Власнику авто» по всіх його рейсах; виплати вносяться вручну, коли розраховуєтесь.
-   * payout.amount > 0 — ви виплатили власнику; < 0 — власник повернув вам.
-   * Повертає масив { key, name, trips[], payouts[], accrued, paid, balance, months[] }.
-   * balance > 0 — ви винні власнику; < 0 — власник винен вам.
+   * Загальний облік «нараховано / виплачено / борг».
+   * cfg.partyOf(t, c) → { key, name } | null — кому нараховується з рейсу;
+   * cfg.amountOf(c) — скільки нараховано з рейсу; cfg.monthFields(c) — додаткові суми для таблиці по місяцях.
+   * payout.amount > 0 — ви виплатили; < 0 — вам повернули.
+   * balance > 0 — ви винні; < 0 — вам винні.
    */
-  function ownerLedger(trips, payouts, rates) {
+  function ledger(trips, payouts, rates, cfg) {
     const map = new Map();
-    const get = (name) => {
-      const key = ownerKey(name);
+    const get = (key, name) => {
       if (!key) return null;
-      if (!map.has(key)) map.set(key, { key, name: String(name).trim().replace(/\s+/g, ' '), trips: [], payouts: [], accrued: 0, paid: 0, balance: 0, months: [] });
-      return map.get(key);
+      if (!map.has(key)) map.set(key, { key, name: cleanName(name) || '—', trips: [], payouts: [], accrued: 0, paid: 0, balance: 0, months: [], _m: new Map() });
+      const o = map.get(key);
+      if ((!o.name || o.name === '—') && cleanName(name)) o.name = cleanName(name);
+      return o;
     };
-    const monthsMap = new Map();
     for (const t of trips || []) {
-      if (!t.managed) continue;
-      const o = get(t.ownerName);
-      if (!o) continue;
       const c = calcTrip(t, rates);
-      o.trips.push({ t, c });
-      o.accrued += c.carOwnerShare;
-      const m = (t.startDate || '').slice(0, 7);
-      const mk = o.key + '|' + m;
-      if (!monthsMap.has(mk)) {
-        const row = { month: m, count: 0, freight: 0, pool: 0, my: 0, carOwnerShare: 0 };
-        monthsMap.set(mk, row);
+      const party = cfg.partyOf(t, c);
+      if (!party) continue;
+      const o = get(party.key, party.name);
+      if (!o) continue;
+      const amount = cfg.amountOf(c);
+      o.trips.push({ t, c, amount });
+      o.accrued += amount;
+      const m = monthOf(t.startDate);
+      if (!o._m.has(m)) {
+        const row = { month: m, count: 0, freight: 0, amount: 0 };
+        o._m.set(m, row);
         o.months.push(row);
       }
-      const row = monthsMap.get(mk);
-      row.count++; row.freight += c.freight; row.pool += c.pool; row.my += c.netProfit;
-      row.carOwnerShare += c.carOwnerShare;
+      const row = o._m.get(m);
+      row.count++; row.freight += c.freight; row.amount += amount;
+      const extra = cfg.monthFields ? cfg.monthFields(c) : {};
+      for (const k of Object.keys(extra)) row[k] = (row[k] || 0) + extra[k];
     }
     for (const p of payouts || []) {
-      const o = get(p.owner);
+      if (payoutKind(p) !== cfg.kind) continue;
+      const o = get(payoutParty(p), p.owner || p.name);
       if (!o) continue;
       o.payouts.push(p);
       o.paid += num(p.amount);
     }
     const out = Array.from(map.values());
     for (const o of out) {
+      delete o._m;
       o.accrued = round2(o.accrued);
       o.paid = round2(o.paid);
       o.balance = round2(o.accrued - o.paid);
       o.months.sort((a, b) => b.month.localeCompare(a.month));
-      for (const r of o.months) for (const k of ['freight', 'pool', 'my', 'carOwnerShare']) r[k] = round2(r[k]);
-      o.payouts.sort((a, b) => (b.date || '').localeCompare(a.date || '') || (b.createdAt || 0) - (a.createdAt || 0));
-      o.trips.sort((a, b) => (b.t.startDate || '').localeCompare(a.t.startDate || ''));
+      for (const r of o.months) for (const k of Object.keys(r)) if (typeof r[k] === 'number' && k !== 'count') r[k] = round2(r[k]);
+      o.payouts.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || (b.createdAt || 0) - (a.createdAt || 0));
+      o.trips.sort((a, b) => String(b.t.startDate || '').localeCompare(String(a.t.startDate || '')));
+      o.last = o.payouts[0] || null;
+      // Нараховано за рейси після останнього розрахунку (за датою початку рейсу)
+      const after = o.trips.filter(({ t }) => !o.last || String(t.startDate || '') > String(o.last.date || ''));
+      o.sinceLast = round2(after.reduce((a, x) => a + x.amount, 0));
+      o.sinceCount = after.length;
     }
     return out.sort((a, b) => a.name.localeCompare(b.name, 'uk'));
   }
 
-  const api = { DEFAULTS, num, daysBetween, calcTrip, summarize, ownerKey, ownerLedger };
+  /** Власники авто під управлінням: їхня частка прибутку. */
+  function ownerLedger(trips, payouts, rates) {
+    const L = ledger(trips, payouts, rates, {
+      kind: 'owner',
+      partyOf: (t) => (t.managed && ownerKey(t.ownerName) ? { key: ownerKey(t.ownerName), name: t.ownerName } : null),
+      amountOf: (c) => c.carOwnerShare,
+      monthFields: (c) => ({ pool: c.pool, my: c.netProfit }),
+    });
+    // Сумісність: carOwnerShare у місяцях
+    for (const o of L) for (const r of o.months) r.carOwnerShare = r.amount;
+    return L;
+  }
+
+  /** Компаньйон: його відсоток з кожного рейсу. Завжди одна сторона «Компаньйон». */
+  function partnerLedger(trips, payouts, rates, name) {
+    return ledger(trips, payouts, rates, {
+      kind: 'partner',
+      partyOf: (t, c) => (c.partnerShare ? { key: 'partner', name: name || 'Компаньйон' } : null),
+      amountOf: (c) => c.partnerShare,
+      monthFields: (c) => ({ net: c.netProfit }),
+    });
+  }
+
+  /** Водії: ЗП + добові з кожного рейсу. */
+  function driverLedger(trips, payouts, rates) {
+    return ledger(trips, payouts, rates, {
+      kind: 'driver',
+      partyOf: (t) => { const key = driverKeyOf(t); return key ? { key, name: t.driverName } : null; },
+      amountOf: (c) => c.driverPay + c.perDiem,
+      monthFields: (c) => ({ pay: c.driverPay, perDiem: c.perDiem }),
+    });
+  }
+
+  /**
+   * Порівняння авто за набір рейсів: що заробило кожне авто.
+   * Ключ — id авто, або назва (якщо авто видалено з довідника).
+   */
+  function carStats(trips, rates) {
+    const map = new Map();
+    for (const t of trips || []) {
+      const key = t.carId ? String(t.carId) : t.carName ? 'n:' + ownerKey(t.carName) : '';
+      if (!key) continue;
+      const c = calcTrip(t, rates);
+      if (!map.has(key)) map.set(key, { key, carId: t.carId || '', carName: t.carName || '', managed: false, count: 0, km: 0, days: 0, fuelLiters: 0, freight: 0, fuelCost: 0, repair: 0, sto: 0, driverPay: 0, netProfit: 0, ownerProfit: 0, carOwnerShare: 0 });
+      const a = map.get(key);
+      a.count++;
+      if (c.managed) a.managed = true;
+      for (const k of ['km', 'days', 'fuelLiters', 'freight', 'fuelCost', 'repair', 'sto', 'driverPay', 'netProfit', 'ownerProfit', 'carOwnerShare']) a[k] += c[k];
+    }
+    const out = Array.from(map.values());
+    for (const a of out) {
+      for (const k of Object.keys(a)) if (typeof a[k] === 'number' && k !== 'count') a[k] = round2(a[k]);
+      a.pricePerKm = a.km > 0 ? round2(a.freight / a.km) : 0;
+      a.profitPerKm = a.km > 0 ? round2(a.netProfit / a.km) : 0;
+      a.fuelPer100 = a.km > 0 ? round2((a.fuelLiters / a.km) * 100) : 0;
+      a.repairPerKm = a.km > 0 ? round2(a.repair / a.km) : 0;
+      a.margin = a.freight > 0 ? round2((a.netProfit / a.freight) * 100) : 0;
+    }
+    return out.sort((a, b) => b.netProfit - a.netProfit);
+  }
+
+  /** Поточний пробіг авто: найбільший кінцевий одометр у його рейсах (або вписаний вручну, якщо більший). */
+  function carOdometer(car, trips) {
+    let max = num(car && car.odoManual);
+    for (const t of trips || []) if (t.carId === car.id) max = Math.max(max, num(t.odoEnd));
+    return max;
+  }
+
+  /** Скільки днів до дати (від today, обидві «РРРР-ММ-ДД»). */
+  function daysUntil(date, today) {
+    const a = Date.parse(String(today) + 'T00:00:00Z');
+    const b = Date.parse(String(date) + 'T00:00:00Z');
+    if (Number.isNaN(a) || Number.isNaN(b)) return null;
+    return Math.round((b - a) / 86400000);
+  }
+
+  const DOCS = [
+    { field: 'insuranceUntil', type: 'insurance', label: 'Страховка' },
+    { field: 'inspectionUntil', type: 'inspection', label: 'Техогляд' },
+    { field: 'tachoUntil', type: 'tacho', label: 'Тахограф' },
+  ];
+
+  /**
+   * Нагадування по авто: ТО за пробігом, страховка / техогляд / тахограф за датою.
+   * level: 'overdue' — прострочено, 'soon' — скоро (≤ 30 днів або ≤ max(1000 км, 10% інтервалу)).
+   */
+  function carReminders(cars, trips, today) {
+    const out = [];
+    for (const car of cars || []) {
+      const every = num(car.serviceEveryKm);
+      const lastStr = car.serviceLastOdo;
+      if (every > 0 && lastStr !== undefined && lastStr !== '' && lastStr !== null) {
+        const odo = carOdometer(car, trips);
+        const next = num(lastStr) + every;
+        const left = round2(next - odo);
+        const warn = Math.max(1000, every * 0.1);
+        if (left <= warn) out.push({ carId: car.id, plate: car.plate || '', type: 'service', label: 'ТО', level: left < 0 ? 'overdue' : 'soon', km: left, next, odo });
+      }
+      for (const d of DOCS) {
+        if (!car[d.field]) continue;
+        const days = daysUntil(car[d.field], today);
+        if (days === null) continue;
+        if (days <= 30) out.push({ carId: car.id, plate: car.plate || '', type: d.type, label: d.label, level: days < 0 ? 'overdue' : 'soon', days, date: car[d.field] });
+      }
+    }
+    // Спершу прострочені, потім найближчі
+    const urgency = (x) => (x.level === 'overdue' ? -1e9 : 0) + (x.type === 'service' ? x.km / 50 : x.days);
+    return out.sort((a, b) => urgency(a) - urgency(b));
+  }
+
+  /** Записи витрат бізнесу за період (рік / місяць як у фільтрі: 'all' або '2026' / '03'). */
+  function expensesInPeriod(expenses, year, month) {
+    return (expenses || []).filter((e) => {
+      const m = monthOf(e.date);
+      if (!m) return false;
+      const [y, mm] = m.split('-');
+      return (year === 'all' || !year || y === year) && (month === 'all' || !month || mm === month);
+    });
+  }
+
+  const api = {
+    DEFAULTS, num, daysBetween, calcTrip, summarize, ownerKey, monthOf,
+    ledger, ownerLedger, partnerLedger, driverLedger, payoutKind, payoutParty, driverKeyOf,
+    carStats, carOdometer, carReminders, daysUntil, expensesInPeriod,
+  };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.Calc = api;
 })(typeof window !== 'undefined' ? window : globalThis);

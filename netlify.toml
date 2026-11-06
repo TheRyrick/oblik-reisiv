@@ -1,7 +1,8 @@
 [build]
   publish = "build"
-  # Генерує js/env.js зі змінних SUPABASE_URL і SUPABASE_ANON_KEY та збирає сайт у build/
-  command = "npm run build"
+  # 1) автотести розрахунків — якщо хоч один падає, сайт НЕ оновлюється (лишається попередня версія);
+  # 2) збирає стилі Tailwind, генерує js/env.js зі змінних SUPABASE_URL і SUPABASE_ANON_KEY і складає сайт у build/
+  command = "npm test && npm run build"
 
 [[headers]]
   for = "/*"

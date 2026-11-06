@@ -659,3 +659,17 @@ select.input { cursor: pointer; }
 .seg-toggle span { display: grid; place-items: center; min-height: 2.5rem; padding: .35rem .5rem; border-radius: .55rem; font-size: .8rem; font-weight: 500; color: var(--muted); text-align: center; transition: background .15s, color .15s; }
 .seg-toggle input:checked + span { background: var(--raised); color: var(--chalk); box-shadow: inset 0 0 0 1px var(--line-strong); }
 .seg-toggle input:focus-visible + span { outline: 2px solid var(--signal); outline-offset: 1px; }
+
+/* ---------- Розрахунки: перемикач «власники / компаньйон / водії» ---------- */
+.settle-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; padding: .3rem; border-radius: var(--r-lg); background: rgba(34, 40, 48, .78); border: 1px solid var(--line); }
+.settle-tab { display: flex; align-items: center; gap: .55rem; min-height: 3rem; padding: .45rem .7rem; border-radius: .7rem; text-align: left; font-size: .85rem; font-weight: 600; color: var(--muted); transition: background .15s, color .15s; }
+.settle-tab:hover { color: var(--chalk); background: rgba(242,240,234,.05); }
+.settle-tab.is-active { color: var(--chalk); background: var(--raised); box-shadow: inset 0 0 0 1px var(--line-strong), inset 0 -2px 0 var(--signal); }
+@media (max-width: 480px) { .settle-tab { flex-direction: column; align-items: flex-start; gap: .2rem; font-size: .78rem; } .settle-tab .ic { display: none; } }
+
+/* Вкладка «Витрати»: лише фільтри періоду */
+.filters.only-period > :nth-child(n+3) { display: none !important; }
+
+/* Нагадування по авто */
+.reminders-card { border-color: rgba(239,186,24,.28); }
+.reminders-card .plate { flex-shrink: 0; }

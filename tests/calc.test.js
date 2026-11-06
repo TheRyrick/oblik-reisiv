@@ -1,0 +1,255 @@
+/*
+ * Автотести розрахунків (js/calc.js). Запуск: npm test
+ * Працюють на вбудованому в Node тест-раннері — без додаткових пакетів.
+ * Netlify запускає їх перед кожною викладкою: якщо хоч один тест падає — сайт не оновлюється.
+ */
+'use strict';
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const C = require('../js/calc.js');
+
+// Типовий рейс: фрахт 60 000, 2 доби, 1000 км
+const base = Object.freeze({
+  startDate: '2026-10-01', endDate: '2026-10-03', odoStart: 0, odoEnd: 1000,
+  fuelLiters: 300, fuelPrice: 55, fuelPriceActual: 53,
+  cash: 10000, bank: 50000, card: 0, dispatch: 0,
+  repairExpenses: 2000, otherExpenses: 500,
+  perDiem: 200, stoRate: 330, taxRate: 8, driverRate: 25, partnerRate: 25, logistRate: 10,
+});
+const trip = (extra) => Object.assign({}, base, extra || {});
+const near = (a, b, msg) => assert.ok(Math.abs(a - b) < 0.011, `${msg || ''} очікували ${b}, отримали ${a}`);
+
+/** Усі частини фрахту разом мають дорівнювати фрахту — жодна гривня не губиться. */
+function sumOfParts(c) {
+  return c.fuelCost + c.perDiem + c.other + c.driverPay + c.logistPay + c.tax + c.sto + c.repair + c.netProfit + c.carOwnerShare;
+}
+
+test('базові дрібниці: числа, доби', () => {
+  assert.equal(C.num('1 234,5'), 1234.5);
+  assert.equal(C.num(''), 0);
+  assert.equal(C.num('abc'), 0);
+  assert.equal(C.daysBetween('2026-05-01', '2026-05-03'), 2);
+  assert.equal(C.daysBetween('2026-05-01', '2026-05-01'), 1);
+  assert.equal(C.daysBetween('2026-05-03', '2026-05-01'), 0);
+});
+
+test('своє авто: повний розрахунок рейсу', () => {
+  const c = C.calcTrip(trip());
+  assert.equal(c.freight, 60000);
+  assert.equal(c.days, 2);
+  assert.equal(c.km, 1000);
+  assert.equal(c.fuelCostDriver, 16500);
+  assert.equal(c.fuelCost, 15900);
+  assert.equal(c.fuelDiscount, 600);
+  assert.equal(c.tax, 4000);           // 8% від безналу 50 000
+  assert.equal(c.sto, 660);
+  assert.equal(c.perDiem, 400);
+  assert.equal(c.carProfit, 42600);    // 60000 − 16500 − 400 − 500 (ремонт НЕ віднімається)
+  assert.equal(c.driverPay, 10650);    // 25% від прибутку авто
+  assert.equal(c.logistPay, 6000);     // 10% від фрахту
+  assert.equal(c.netProfit, 19890);
+  near(c.partnerShare, 4972.5);
+  near(c.ownerProfit, 14917.5);
+  assert.equal(c.carOwnerShare, 0);
+  near(sumOfParts(c), c.freight, 'сума частин');
+});
+
+test('ремонт не впливає на ЗП водія, лише на прибуток', () => {
+  const a = C.calcTrip(trip({ repairExpenses: 0 }));
+  const b = C.calcTrip(trip({ repairExpenses: 5000 }));
+  assert.equal(a.driverPay, b.driverPay);
+  assert.equal(a.netProfit - b.netProfit, 5000);
+});
+
+test('диспетчерські віднімаються від фрахту', () => {
+  const c = C.calcTrip(trip({ dispatch: 1000 }));
+  assert.equal(c.received, 60000);
+  assert.equal(c.freight, 59000);
+});
+
+test('збитковий рейс: ЗП водія і частка компаньйона — 0', () => {
+  const c = C.calcTrip(trip({ cash: 0, bank: 5000 }));
+  assert.ok(c.carProfit < 0);
+  assert.equal(c.driverPay, 0);
+  assert.equal(c.partnerShare, 0);
+  assert.ok(c.ownerProfit < 0);
+});
+
+test('авто під управлінням: усе після витрат ділиться 30/70', () => {
+  const own = C.calcTrip(trip());
+  const m = C.calcTrip(trip({ managed: true, mgmtShare: 30, ownerName: 'Іван' }));
+  assert.equal(m.driverPay, own.driverPay, 'ЗП водія та сама');
+  assert.equal(m.pool, own.netProfit, 'до розподілу = чистий прибуток як у свого авто');
+  near(m.netProfit, 5967);             // 30%
+  near(m.carOwnerShare, 13923);        // 70%
+  near(m.partnerShare, 1491.75);       // 25% від ваших 30%
+  near(m.ownerProfit, 4475.25);
+  near(sumOfParts(m), m.freight, 'сума частин');
+});
+
+test('авто під управлінням: ремонт ділиться за частками', () => {
+  const a = C.calcTrip(trip({ managed: true, mgmtShare: 30, repairExpenses: 0 }));
+  const b = C.calcTrip(trip({ managed: true, mgmtShare: 30, repairExpenses: 10000 }));
+  near(a.netProfit - b.netProfit, 3000);
+  near(a.carOwnerShare - b.carOwnerShare, 7000);
+  assert.equal(a.driverPay, b.driverPay);
+});
+
+test('авто під управлінням: збиток ділиться так само', () => {
+  const m = C.calcTrip(trip({ managed: true, mgmtShare: 30, cash: 0, bank: 20000 }));
+  assert.ok(m.pool < 0);
+  near(m.netProfit, m.pool * 0.3);
+  near(m.carOwnerShare, m.pool * 0.7);
+  assert.equal(m.partnerShare, 0);
+});
+
+test('частка поза межами 0–100 обрізається; порожня — з налаштувань', () => {
+  assert.equal(C.calcTrip(trip({ managed: true, mgmtShare: 150 })).mgmtShare, 100);
+  assert.equal(C.calcTrip(trip({ managed: true, mgmtShare: -5 })).mgmtShare, 0);
+  assert.equal(C.calcTrip(trip({ managed: true, mgmtShare: '' }), { mgmtShare: 40 }).mgmtShare, 40);
+});
+
+test('підсумок: свої + керовані, щомісячні та витрати бізнесу', () => {
+  const trips = [trip(), trip({ managed: true, mgmtShare: 30, ownerName: 'Іван', startDate: '2026-11-02', endDate: '2026-11-03' })];
+  const s = C.summarize(trips, { monthlyExpenses: 1000 }, { expenses: [
+    { date: '2026-10-05', category: 'Бухгалтер', amount: 3000 },
+    { date: '2026-10-07', category: 'Телефон', amount: 500 },
+    { date: '2026-11-07', category: 'Бухгалтер', amount: 3000 },
+  ] });
+  assert.equal(s.count, 2);
+  assert.equal(s.ownCount, 1);
+  assert.equal(s.mgmtCount, 1);
+  assert.equal(s.months, 2);
+  assert.equal(s.monthlyFlat, 2000);
+  assert.equal(s.bizEntries, 6500);
+  assert.equal(s.monthlyExpenses, 8500);
+  assert.deepEqual(s.bizByCat.map((x) => x.category), ['Бухгалтер', 'Телефон']);
+  const before = trips.map((t) => C.calcTrip(t)).reduce((a, c) => a + c.netProfit, 0);
+  near(s.netProfit, before - 8500);
+  // Витрати бізнесу не зменшують частку компаньйона
+  const partner = trips.map((t) => C.calcTrip(t)).reduce((a, c) => a + c.partnerShare, 0);
+  near(s.partnerShare, partner);
+  near(s.ownerProfit, s.netProfit - s.partnerShare);
+  // Чистий прибуток розкладається на свої + керовані − витрати бізнесу
+  near(s.netProfit, s.ownNet + s.mgmtNet - s.monthlyExpenses);
+});
+
+test('витрати за період: фільтр рік/місяць і захист від сміття в датах', () => {
+  const ex = [
+    { date: '2026-10-05', amount: 1 }, { date: '2026-11-05', amount: 2 },
+    { date: '2025-10-05', amount: 4 }, { date: '<img>', amount: 8 }, { amount: 16 },
+  ];
+  assert.equal(C.expensesInPeriod(ex, 'all', 'all').length, 3);
+  assert.equal(C.expensesInPeriod(ex, '2026', 'all').length, 2);
+  assert.equal(C.expensesInPeriod(ex, 'all', '10').length, 2);
+  assert.equal(C.expensesInPeriod(ex, '2026', '11')[0].amount, 2);
+});
+
+test('власники авто: нараховано, виплати, борг, «після розрахунку»', () => {
+  const trips = [
+    trip({ managed: true, mgmtShare: 30, ownerName: ' Іван  Петренко ' }),
+    trip({ managed: true, mgmtShare: 30, ownerName: 'іван петренко', startDate: '2026-11-02', endDate: '2026-11-03' }),
+    trip(), // своє авто — не враховується
+  ];
+  const payouts = [
+    { id: 'a', owner: 'ІВАН ПЕТРЕНКО', date: '2026-10-31', amount: 10000 },   // старий запис без kind = власник
+    { id: 'b', kind: 'partner', date: '2026-10-31', amount: 999 },          // інший вид — не враховується
+  ];
+  const L = C.ownerLedger(trips, payouts);
+  assert.equal(L.length, 1);
+  const o = L[0];
+  assert.equal(o.trips.length, 2);
+  const one = C.calcTrip(trips[0]).carOwnerShare;
+  const two = C.calcTrip(trips[1]).carOwnerShare;
+  near(o.accrued, one + two);
+  assert.equal(o.paid, 10000);
+  near(o.balance, one + two - 10000);
+  assert.equal(o.last.id, 'a');
+  assert.equal(o.sinceCount, 1);
+  near(o.sinceLast, two);
+  assert.deepEqual(o.months.map((r) => r.month), ['2026-11', '2026-10']);
+  near(o.months[1].carOwnerShare, one);
+});
+
+test('компаньйон: його % з кожного рейсу, повернення від нього', () => {
+  const trips = [trip(), trip({ managed: true, mgmtShare: 30 })];
+  const L = C.partnerLedger(trips, [
+    { id: 'p1', kind: 'partner', date: '2026-10-10', amount: 5000 },
+    { id: 'p2', kind: 'partner', date: '2026-10-12', amount: -1000 }, // повернув
+  ]);
+  assert.equal(L.length, 1);
+  const p = L[0];
+  assert.equal(p.key, 'partner');
+  near(p.accrued, 4972.5 + 1491.75);
+  assert.equal(p.paid, 4000);
+  near(p.balance, 4972.5 + 1491.75 - 4000);
+});
+
+test('водії: ЗП + добові, окремо по кожному водію', () => {
+  const trips = [
+    trip({ driverId: 'd1', driverName: 'Коваленко Олег' }),
+    trip({ driverId: 'd1', driverName: 'Коваленко Олег', startDate: '2026-11-01', endDate: '2026-11-02' }),
+    trip({ driverId: 'd2', driverName: 'Шевчук Андрій' }),
+    trip({ driverName: 'Видалений Водій' }), // без id — за імʼям
+  ];
+  const L = C.driverLedger(trips, [{ id: 'x', kind: 'driver', party: 'd1', name: 'Коваленко Олег', date: '2026-10-20', amount: 11050 }]);
+  assert.equal(L.length, 3);
+  const d1 = L.find((d) => d.key === 'd1');
+  const c1 = C.calcTrip(trips[0]);
+  const c2 = C.calcTrip(trips[1]);
+  near(d1.accrued, c1.driverPay + c1.perDiem + c2.driverPay + c2.perDiem);
+  assert.equal(d1.paid, 11050);
+  near(d1.months.find((r) => r.month === '2026-10').pay, c1.driverPay);
+  near(d1.months.find((r) => r.month === '2026-10').perDiem, c1.perDiem);
+  assert.ok(L.some((d) => d.key === 'n:видалений водій'));
+});
+
+test('порівняння авто: сортування за прибутком, показники на км', () => {
+  const trips = [
+    trip({ carId: 'a', carName: 'AA1111AA' }),
+    trip({ carId: 'a', carName: 'AA1111AA', repairExpenses: 20000 }),
+    trip({ carId: 'b', carName: 'BB2222BB', cash: 30000 }),
+  ];
+  const S = C.carStats(trips);
+  assert.deepEqual(S.map((x) => x.carId), ['b', 'a']);
+  const a = S.find((x) => x.carId === 'a');
+  assert.equal(a.count, 2);
+  assert.equal(a.km, 2000);
+  assert.equal(a.repair, 22000);
+  assert.equal(a.repairPerKm, 11);
+  assert.equal(a.fuelPer100, 30);
+  near(a.profitPerKm, a.netProfit / 2000);
+});
+
+test('нагадування: ТО за пробігом і документи за датою', () => {
+  const cars = [
+    { id: 'a', plate: 'AA1111AA', serviceEveryKm: 15000, serviceLastOdo: 100000, insuranceUntil: '2026-11-20', tachoUntil: '2027-06-01' },
+    { id: 'b', plate: 'BB2222BB', serviceEveryKm: 15000, serviceLastOdo: 100000, inspectionUntil: '2026-11-01' },
+    { id: 'c', plate: 'CC3333CC', serviceEveryKm: 15000, serviceLastOdo: '' }, // ТО не налаштоване
+  ];
+  const trips = [
+    { carId: 'a', odoEnd: 114200 }, // до ТО 800 км → скоро
+    { carId: 'b', odoEnd: 116000 }, // перепробіг 1000 км → прострочено
+    { carId: 'c', odoEnd: 999999 },
+  ];
+  const R = C.carReminders(cars, trips, '2026-11-06');
+  const by = (car, type) => R.find((r) => r.carId === car && r.type === type);
+  assert.equal(by('a', 'service').km, 800);
+  assert.equal(by('a', 'service').level, 'soon');
+  assert.equal(by('b', 'service').level, 'overdue');
+  assert.equal(by('b', 'service').km, -1000);
+  assert.equal(by('a', 'insurance').days, 14);
+  assert.equal(by('b', 'inspection').level, 'overdue');
+  assert.equal(by('a', 'tacho'), undefined, 'далеко — без нагадування');
+  assert.equal(R.filter((r) => r.carId === 'c').length, 0);
+  assert.equal(R[0].level, 'overdue', 'прострочені — першими');
+  assert.equal(C.carOdometer({ id: 'a', odoManual: 200000 }, trips), 200000);
+});
+
+test('захист: сміття в даних не ламає розрахунок', () => {
+  const c = C.calcTrip({ startDate: '<img src=x>', cash: 'abc', bank: null, managed: 'yes', mgmtShare: 'xx' });
+  assert.equal(c.freight, 0);
+  assert.equal(Number.isFinite(c.netProfit), true);
+  const L = C.ownerLedger([{ managed: true, ownerName: '' }], [{ owner: '', amount: 5 }, null].filter(Boolean));
+  assert.equal(L.length, 0);
+});

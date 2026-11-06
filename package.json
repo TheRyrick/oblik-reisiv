@@ -4,6 +4,12 @@
   "private": true,
   "description": "Облік рейсів — статичний сайт із Supabase",
   "scripts": {
-    "build": "sh tools/build.sh"
+    "css": "tailwindcss -c tailwind.config.js -i css/tailwind.src.css -o css/tailwind.css --minify",
+    "test": "node --test tests/calc.test.js",
+    "e2e": "node tests/e2e/run.js",
+    "build": "npm run css && sh tools/build.sh"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.17"
   }
 }
