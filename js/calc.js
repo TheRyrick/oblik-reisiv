@@ -362,7 +362,10 @@
     { field: 'insuranceUntil', type: 'insurance', label: 'Страховка' },
     { field: 'inspectionUntil', type: 'inspection', label: 'Техогляд' },
     { field: 'tachoUntil', type: 'tacho', label: 'Тахограф' },
+    { field: 'licenseUntil', type: 'license', label: 'Ліцензія' },
+    { field: 'permitUntil', type: 'permit', label: 'Дозвіл' },
   ];
+  const DOC_FIELDS = DOCS.map((d) => d.field);
 
   /**
    * Нагадування по авто: ТО за пробігом, страховка / техогляд / тахограф за датою.
@@ -402,10 +405,175 @@
     });
   }
 
+  const isDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
+
+  /**
+   * Борги замовників: рейси зі статусом оплати «чекаємо» (payStatus === 'waiting').
+   * Старі рейси без статусу вважаються оплаченими.
+   * Сума боргу — усе, що замовник має заплатити (готівка + безнал + карта).
+   * Повертає { total, overdue, count, overdueCount, customers: [{ key, name, total, overdue, items: [{ t, amount, due, daysLeft, isOverdue }] }] }.
+   */
+  function customerDebts(trips, rates, today) {
+    const map = new Map();
+    const out = { total: 0, overdue: 0, count: 0, overdueCount: 0, customers: [] };
+    for (const t of trips || []) {
+      if (t.payStatus !== 'waiting') continue;
+      const c = calcTrip(t, rates);
+      const amount = c.received;
+      const name = cleanName(t.customer) || 'Без замовника';
+      const key = ownerKey(t.customer) || '—';
+      const due = isDate(t.payDue) ? t.payDue : '';
+      const daysLeft = due ? daysUntil(due, today) : null;
+      const isOverdue = daysLeft !== null && daysLeft < 0;
+      if (!map.has(key)) map.set(key, { key, name, total: 0, overdue: 0, items: [] });
+      const g = map.get(key);
+      g.items.push({ t, amount, due, daysLeft, isOverdue });
+      g.total += amount;
+      out.total += amount;
+      out.count++;
+      if (isOverdue) { g.overdue += amount; out.overdue += amount; out.overdueCount++; }
+    }
+    for (const g of map.values()) {
+      g.total = round2(g.total);
+      g.overdue = round2(g.overdue);
+      // Спершу найбільш прострочені, потім без строку
+      g.items.sort((a, b) => (a.daysLeft === null ? 1e9 : a.daysLeft) - (b.daysLeft === null ? 1e9 : b.daysLeft));
+      out.customers.push(g);
+    }
+    out.customers.sort((a, b) => b.overdue - a.overdue || b.total - a.total);
+    out.total = round2(out.total);
+    out.overdue = round2(out.overdue);
+    return out;
+  }
+
+  /** Кількість днів у місяці «РРРР-ММ». */
+  function daysInMonth(month) {
+    const [y, m] = String(month).split('-').map(Number);
+    return new Date(Date.UTC(y, m, 0)).getUTCDate();
+  }
+
+  /**
+   * Прогноз на поточний місяць (за датою today).
+   * Ваш прибуток з рейсів (після компаньйона) має покрити витрати бізнесу (постійні + записи за місяць).
+   * Прогноз — простий темп: заробили за D днів → скільки буде за весь місяць.
+   */
+  function monthForecast(trips, rates, expenses, today) {
+    const r = Object.assign({}, DEFAULTS, rates || {});
+    const month = String(today).slice(0, 7);
+    const [y, mm] = month.split('-');
+    const dim = daysInMonth(month);
+    const day = Math.min(dim, Math.max(1, Number(String(today).slice(8, 10)) || 1));
+    const list = (trips || []).filter((t) => monthOf(t.startDate) === month);
+    let freight = 0, net = 0, owner = 0;
+    for (const t of list) {
+      const c = calcTrip(t, rates);
+      freight += c.freight; net += c.netProfit; owner += c.ownerProfit;
+    }
+    const entries = expensesInPeriod(expenses, y, mm).reduce((a, e) => a + num(e.amount), 0);
+    const bizExpenses = num(r.monthlyExpenses) + entries;
+    const pace = dim / day;
+    const projFreight = freight * pace;
+    const projOwner = owner * pace;
+    const needMore = Math.max(0, bizExpenses - owner);
+    // Скільки ще фрахту треба, щоб покрити витрати — за вашою рентабельністю цього місяця (або за весь час, якщо рейсів ще немає)
+    let margin = freight > 0 ? owner / freight : 0;
+    if (!(margin > 0)) {
+      let f = 0, o = 0;
+      for (const t of trips || []) { const c = calcTrip(t, rates); f += c.freight; o += c.ownerProfit; }
+      margin = f > 0 && o > 0 ? o / f : 0;
+    }
+    // Минулий місяць — для порівняння
+    const pm = (() => { const d = new Date(Date.UTC(Number(y), Number(mm) - 2, 1)); return d.toISOString().slice(0, 7); })();
+    let prevOwner = 0, prevCount = 0;
+    for (const t of trips || []) if (monthOf(t.startDate) === pm) { prevOwner += calcTrip(t, rates).ownerProfit; prevCount++; }
+    const prevEntries = expensesInPeriod(expenses, pm.slice(0, 4), pm.slice(5, 7)).reduce((a, e) => a + num(e.amount), 0);
+    return {
+      month, day, daysInMonth: dim, daysLeft: dim - day, count: list.length,
+      freight: round2(freight), net: round2(net), owner: round2(owner),
+      bizExpenses: round2(bizExpenses), bizEntries: round2(entries), monthlyRate: num(r.monthlyExpenses),
+      profitSoFar: round2(owner - bizExpenses),
+      projFreight: round2(projFreight), projOwner: round2(projOwner),
+      projProfit: round2(projOwner - bizExpenses),
+      needMore: round2(needMore),
+      margin: round2(margin * 100),
+      freightNeeded: margin > 0 ? round2(needMore / margin) : null,
+      covered: owner >= bizExpenses,
+      prevMonth: pm, prevCount,
+      prevProfit: prevCount || prevEntries ? round2(prevOwner - (prevCount ? num(r.monthlyExpenses) : 0) - prevEntries) : null,
+    };
+  }
+
+  /**
+   * Календар авто на місяць «РРРР-ММ»: по кожному дню — 'trip' (у рейсі), 'repair' (ремонт), 'idle' (стоїть), 'future' (ще не настав).
+   * blocks — позначені вручну періоди ремонту: [{ id, carId, from, to, note }].
+   * Рейс має пріоритет над ремонтом.
+   */
+  function carCalendar(cars, trips, blocks, month, today) {
+    const dim = daysInMonth(month);
+    const dayIso = (d) => `${month}-${String(d).padStart(2, '0')}`;
+    const rows = [];
+    for (const car of cars || []) {
+      const days = [];
+      const myTrips = (trips || []).filter((t) => t.carId === car.id && isDate(t.startDate) && isDate(t.endDate));
+      const myBlocks = (blocks || []).filter((b) => b.carId === car.id && isDate(b.from) && isDate(b.to));
+      let tripDays = 0, repairDays = 0, idleDays = 0;
+      for (let d = 1; d <= dim; d++) {
+        const iso = dayIso(d);
+        const trip = myTrips.find((t) => t.startDate <= iso && iso <= t.endDate);
+        const block = !trip && myBlocks.find((b) => b.from <= iso && iso <= b.to);
+        let state;
+        if (trip) { state = 'trip'; tripDays++; }
+        else if (block) { state = 'repair'; repairDays++; }
+        else if (today && iso > today) state = 'future';
+        else { state = 'idle'; idleDays++; }
+        days.push({ day: d, date: iso, state, tripId: trip ? trip.id : '', blockId: block ? block.id : '', route: trip ? String(trip.route || '') : '', note: block ? String(block.note || '') : '' });
+      }
+      rows.push({ carId: car.id, plate: car.plate || '', brand: car.brand || '', days, tripDays, repairDays, idleDays });
+    }
+    return { month, daysInMonth: dim, rows };
+  }
+
+  /**
+   * Текст щоденного нагадування (для Telegram). Повертає '' якщо нагадувати нічого.
+   * Без розмітки — простий текст.
+   */
+  function dailyDigest(data, today, opts) {
+    const cars = data.cars || [];
+    const trips = data.trips || [];
+    const settings = Object.assign({}, DEFAULTS, data.settings || {});
+    const fmt = (n) => Math.round(n).toLocaleString('uk-UA').replace(/ /g, ' ') + ' ₴';
+    const dmy = (iso) => (isDate(iso) ? iso.slice(8, 10) + '.' + iso.slice(5, 7) + '.' + iso.slice(0, 4) : '');
+    const lines = [];
+    const rem = carReminders(cars, trips, today);
+    if (rem.length) {
+      lines.push('🚚 Авто і документи:');
+      for (const r of rem) {
+        let txt;
+        if (r.type === 'service') txt = r.km < 0 ? `ТО прострочено на ${Math.round(-r.km)} км` : `ТО через ${Math.round(r.km)} км`;
+        else txt = `${r.label}: ${r.days < 0 ? `прострочено ${-r.days} дн.` : r.days === 0 ? 'закінчується сьогодні' : `ще ${r.days} дн.`} (до ${dmy(r.date)})`;
+        lines.push(`${r.level === 'overdue' ? '🔴' : '🟡'} ${r.plate || '—'} — ${txt}`);
+      }
+    }
+    const debts = customerDebts(trips, settings, today);
+    const late = [];
+    for (const g of debts.customers) for (const it of g.items) if (it.isOverdue || it.daysLeft === 0) late.push({ g, it });
+    if (late.length) {
+      if (lines.length) lines.push('');
+      lines.push(`💰 Борги замовників (усього ${fmt(debts.total)}):`);
+      for (const { g, it } of late) {
+        lines.push(`${it.isOverdue ? '🔴' : '🟡'} ${g.name} — ${fmt(it.amount)}, ${it.isOverdue ? `прострочено ${-it.daysLeft} дн.` : 'строк сьогодні'} (рейс ${dmy(it.t.startDate)}${it.t.route ? ', ' + String(it.t.route).slice(0, 60) : ''})`);
+      }
+    }
+    if (!lines.length && !(opts && opts.always)) return '';
+    const head = 'Облік рейсів — нагадування на ' + dmy(today);
+    return [head, '', ...(lines.length ? lines : ['✅ Усе гаразд: прострочених документів, ТО і боргів немає.'])].join('\n');
+  }
+
   const api = {
     DEFAULTS, num, daysBetween, calcTrip, summarize, ownerKey, monthOf,
     ledger, ownerLedger, partnerLedger, driverLedger, payoutKind, payoutParty, driverKeyOf,
-    carStats, carOdometer, carReminders, daysUntil, expensesInPeriod,
+    carStats, carOdometer, carReminders, daysUntil, expensesInPeriod, DOCS, DOC_FIELDS,
+    customerDebts, monthForecast, daysInMonth, carCalendar, dailyDigest,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.Calc = api;

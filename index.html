@@ -139,6 +139,8 @@
     <div id="dashEmpty" class="hidden"></div>
     <!-- Нагадування по авто: ТО, страховка, техогляд, тахограф (малює app.js) -->
     <div id="reminders" class="hidden"></div>
+    <!-- Борги замовників і прогноз на поточний місяць (малює app.js) -->
+    <div id="dashExtra" class="grid gap-4 lg:grid-cols-2"></div>
     <!-- KPI: головні показники -->
     <section>
       <div class="section-label flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
@@ -211,6 +213,39 @@
         <i data-lucide="truck" class="h-5 w-5 text-slate-500"></i>
       </div>
       <div id="carStats" class="overflow-x-auto"></div>
+    </section>
+
+    <!-- Календар авто: рейс / ремонт / простій по днях (малює app.js) -->
+    <section id="calendarSection" class="card hidden">
+      <div class="mb-3 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 class="card-title">Календар авто</h2>
+          <p class="text-xs text-slate-400">Де яке авто кожного дня. Натисніть на день: рейс — відкрити, вільний день — позначити ремонт.</p>
+        </div>
+        <div class="flex items-center gap-1">
+          <button type="button" class="icon-btn" data-cal-shift="-1" aria-label="Попередній місяць"><i data-lucide="chevron-left" class="h-5 w-5"></i></button>
+          <span id="calMonthLabel" class="min-w-[8.5rem] text-center text-sm font-semibold text-white"></span>
+          <button type="button" class="icon-btn" data-cal-shift="1" aria-label="Наступний місяць"><i data-lucide="chevron-right" class="h-5 w-5"></i></button>
+        </div>
+      </div>
+      <div class="cal-legend mb-3">
+        <span><i class="cal-sw is-trip"></i>У рейсі</span>
+        <span><i class="cal-sw is-repair"></i>Ремонт</span>
+        <span><i class="cal-sw is-idle"></i>Стоїть</span>
+        <span><i class="cal-sw is-future"></i>Ще не настав</span>
+      </div>
+      <div id="calGrid" class="overflow-x-auto"></div>
+      <form id="blockForm" class="cal-form mt-4 hidden" novalidate>
+        <div class="flex items-center gap-2 text-sm font-semibold text-white"><i data-lucide="wrench" class="h-4 w-4 text-cyan-300"></i>Позначити ремонт</div>
+        <div class="grid gap-2 sm:grid-cols-[1.2fr_1fr_1fr_1.5fr_auto] sm:items-end">
+          <label class="field"><span>Авто</span><select name="carId" class="input"></select></label>
+          <label class="field"><span>З</span><input name="from" type="date" class="input" required /></label>
+          <label class="field"><span>По</span><input name="to" type="date" class="input" required /></label>
+          <label class="field"><span>Що робили <em class="not-italic text-slate-500">(необовʼязково)</em></span><input name="note" type="text" class="input" maxlength="100" placeholder="Напр. заміна зчеплення" /></label>
+          <div class="flex gap-2"><button type="button" id="blockCancel" class="btn-ghost justify-center">Скасувати</button><button type="submit" class="btn-primary justify-center"><i data-lucide="check" class="h-4 w-4"></i><span>Зберегти</span></button></div>
+        </div>
+      </form>
+      <div id="calBlocks" class="mt-3"></div>
     </section>
 
     <!-- Останні рейси (короткий список) -->
@@ -392,6 +427,20 @@
             </fieldset>
 
             <fieldset class="fs">
+              <legend class="legend"><i data-lucide="building-2" class="h-4 w-4"></i>Замовник і оплата</legend>
+              <div class="grid gap-3 sm:grid-cols-2">
+                <label class="field sm:col-span-2"><span>Замовник</span><input name="customer" type="text" class="input" list="customersList" maxlength="80" placeholder="Напр. ТОВ «Агро-Схід»" autocomplete="off" /></label>
+                <datalist id="customersList"></datalist>
+                <div class="seg-toggle sm:col-span-2" role="radiogroup" aria-label="Оплата">
+                  <label><input type="radio" name="payStatus" value="paid" checked /><span>Оплачено</span></label>
+                  <label><input type="radio" name="payStatus" value="waiting" /><span>Чекаємо оплату</span></label>
+                </div>
+                <label id="payDueWrap" class="field hidden"><span>Оплатити до</span><input name="payDue" type="date" class="input" /></label>
+              </div>
+              <p id="payHint" class="mt-2 hidden text-xs text-slate-500">Сума боргу — уся сума рейсу (готівка + безнал + карта). Рейс з’явиться у «Розрахунки → Замовники», а коли строк мине — у нагадуваннях. Коли гроші прийдуть — натисніть там «Оплачено».</p>
+            </fieldset>
+
+            <fieldset class="fs">
               <legend class="legend"><i data-lucide="receipt" class="h-4 w-4"></i>Інше</legend>
               <div class="grid gap-3 sm:grid-cols-2">
                 <label class="field"><span><i data-lucide="wrench" class="inline h-3.5 w-3.5 text-cyan-400"></i> Витрати на ремонт, грн</span><input name="repairExpenses" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" /></label>
@@ -500,6 +549,11 @@
           <div class="preview-sep !my-4"></div>
           <label class="field"><span>Постійні щомісячні витрати, грн за місяць</span><input name="monthlyExpenses" type="number" step="any" min="0" class="input" placeholder="0" /></label>
           <p class="text-xs text-slate-500">Віднімаються від чистого прибутку бізнесу та вашого прибутку за кожен місяць, у якому є рейси. На частку компаньйона не впливають. Діють одразу на всі місяці. Разові й інші витрати (бухгалтер, штрафи, телефон) зручніше вносити у вкладці «Витрати» — по категоріях.</p>
+          <div class="preview-sep !my-4"></div>
+          <div class="flex items-center gap-2 text-sm font-semibold text-white"><i data-lucide="send" class="h-4 w-4 text-sky-300"></i>Нагадування в Telegram</div>
+          <label class="field"><span>Ваш Telegram chat ID</span><input name="telegramChatId" type="text" inputmode="numeric" class="input" maxlength="20" placeholder="Напр. 123456789" autocomplete="off" /></label>
+          <p class="text-xs text-slate-500">Щоранку бот напише, якщо скоро ТО, закінчується страховка / техогляд / ліцензія чи прострочена оплата від замовника. Як дізнатись свій ID: напишіть боту <b class="text-slate-300">@userinfobot</b> — він відповість числом. Потім напишіть будь-що <b class="text-slate-300">своєму</b> боту (інакше він не зможе вам писати).</p>
+          <button type="button" id="tgTest" class="btn-ghost w-full justify-center"><i data-lucide="send" class="h-4 w-4"></i><span>Зберегти і надіслати тест</span></button>
         </div>
         <div class="mt-6 flex justify-end gap-2">
           <button type="button" class="btn-ghost" data-close>Скасувати</button>
@@ -555,6 +609,8 @@
                   <label class="field"><span>Страховка до</span><input name="insuranceUntil" type="date" class="input" /></label>
                   <label class="field"><span>Техогляд до</span><input name="inspectionUntil" type="date" class="input" /></label>
                   <label class="field col-span-2"><span>Тахограф (калібрування) до</span><input name="tachoUntil" type="date" class="input" /></label>
+                  <label class="field"><span>Ліцензія до</span><input name="licenseUntil" type="date" class="input" /></label>
+                  <label class="field"><span>Дозвіл (CEMT тощо) до</span><input name="permitUntil" type="date" class="input" /></label>
                 </div>
                 <p class="mt-2 text-xs text-slate-500">Сайт попередить на панелі: ТО — за 2 500 км, документи — за 30 днів. Порожні поля — без нагадувань.</p>
               </details>

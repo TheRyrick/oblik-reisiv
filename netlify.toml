@@ -16,3 +16,8 @@
   for = "/js/env.js"
   [headers.values]
     Cache-Control = "no-cache"
+
+# Серверні функції (Telegram-нагадування). Секрети — лише у змінних оточення Netlify.
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"

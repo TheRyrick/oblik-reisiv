@@ -118,8 +118,14 @@
     }
   }
 
+  /** Токен поточної сесії — для викликів своїх серверних функцій (Netlify Functions). */
+  async function token() {
+    const { data } = await db.auth.getSession();
+    return (data && data.session && data.session.access_token) || '';
+  }
+
   window.Cloud = {
-    init, get, set, has, flush, refresh, status,
+    init, get, set, has, flush, refresh, status, token,
     on(type, fn) { listeners[type].push(fn); },
   };
 })();

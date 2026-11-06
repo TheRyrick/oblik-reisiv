@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const { calcTrip, summarize, DEFAULTS, num, ownerKey, ownerLedger, partnerLedger, driverLedger, carStats, carOdometer, carReminders, expensesInPeriod } = window.Calc;
+  const { calcTrip, summarize, DEFAULTS, num, ownerKey, ownerLedger, partnerLedger, driverLedger, carStats, carOdometer, carReminders, expensesInPeriod, customerDebts, monthForecast, carCalendar, DOC_FIELDS } = window.Calc;
 
   const Cloud = window.Cloud;
   const MONTHS = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
@@ -11,9 +11,11 @@
   // ---------- Стан (дані з хмари, див. js/cloud.js) ----------
   // payouts — виплати власникам авто під управлінням. Зберігаються всередині settings
   // (рядок «settings» у хмарі), щоб не міняти схему бази даних.
-  let trips, drivers, cars, settings, payouts, expenses;
+  let trips, drivers, cars, settings, payouts, expenses, blocks;
   /** Запис розрахунку: власник (старі записи), компаньйон або водій. */
   const validPayout = (p) => p && typeof p === 'object' && p.id && (p.owner || p.party || p.kind === 'partner');
+  /** Позначений вручну ремонт авто (для календаря). */
+  const validBlock = (b) => b && typeof b === 'object' && b.id && b.carId && /^\d{4}-\d{2}-\d{2}$/.test(String(b.from || '')) && /^\d{4}-\d{2}-\d{2}$/.test(String(b.to || '')) && b.from <= b.to;
   const validExpense = (e) => e && typeof e === 'object' && e.id && /^\d{4}-\d{2}-\d{2}$/.test(String(e.date || '')) && num(e.amount) > 0;
   function loadState() {
     trips = Cloud.get('trips', []);
@@ -22,6 +24,7 @@
     settings = Object.assign({}, DEFAULTS, Cloud.get('settings', {}));
     payouts = Array.isArray(settings.payouts) ? settings.payouts.filter(validPayout) : [];
     expenses = Array.isArray(settings.expenses) ? settings.expenses.filter(validExpense) : [];
+    blocks = Array.isArray(settings.carBlocks) ? settings.carBlocks.filter(validBlock) : [];
   }
   loadState();
   let filter = { year: 'all', month: 'all', driver: 'all', car: 'all', kind: 'all' };
@@ -35,7 +38,7 @@
   const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
 
   function saveTrips() { Cloud.set('trips', trips); }
-  function saveSettings() { settings.payouts = payouts; settings.expenses = expenses; Cloud.set('settings', settings); }
+  function saveSettings() { settings.payouts = payouts; settings.expenses = expenses; settings.carBlocks = blocks; Cloud.set('settings', settings); }
   /** Витрати бізнесу за вибраний період (рік / місяць). */
   const periodExpenses = () => expensesInPeriod(expenses, filter.year, filter.month);
   function saveRefs() {
@@ -139,7 +142,7 @@
         if (filter.car !== 'all' && (t.carId || '') !== filter.car) return false;
         if (filter.kind === 'own' && t.managed) return false;
         if (filter.kind === 'managed' && !t.managed) return false;
-        if (q && !(`${t.route || ''} ${t.note || ''} ${tripDriver(t)} ${tripCar(t)}`.toLowerCase().includes(q))) return false;
+        if (q && !(`${t.route || ''} ${t.note || ''} ${t.customer || ''} ${tripDriver(t)} ${tripCar(t)}`.toLowerCase().includes(q))) return false;
         return true;
       })
       .sort((a, b) => (b.startDate || '').localeCompare(a.startDate || '') || (b.createdAt || 0) - (a.createdAt || 0));
@@ -736,6 +739,8 @@
     renderExpenses();
     renderCarStats(list);
     renderReminders();
+    renderDashExtra();
+    renderCalendar();
     if (!$('#payoutModal').classList.contains('hidden')) renderPayoutBalance();
     if (!$('#viewModal').classList.contains('hidden')) renderTripView();
     if (!$('#kpiModal').classList.contains('hidden')) renderKpiInfo();
@@ -767,6 +772,8 @@
       empty: ['Водіям ще нічого не нараховано', 'Додайте рейс з водієм — сайт порахує його ЗП і добові.', 'add', 'Новий рейс', 'plus'],
       cols: [['ЗП', 'pay', 'text-amber-300'], ['Добові', 'perDiem', 'text-violet-300'], ['Разом', 'amount', 'strong']],
     },
+    // Замовники — окремий вид: борги за рейсами («чекаємо оплату»), без записів виплат
+    customers: { title: 'Замовники', icon: 'building-2' },
   };
 
   /** Облік для вкладки: імена й номери авто беремо з довідника, якщо є. */
@@ -809,16 +816,19 @@
     const S = SETTLE[settleTab];
     const L = all[settleTab];
     const sum = (list) => list.reduce((a, o) => a + o.balance, 0);
+    const debts = customerDebts(trips, settings, today());
+    const tabSum = (k) => (k === 'customers' ? (debts.count ? uah(debts.total) : '—') : all[k].length ? signedUah(sum(all[k])) : '—');
 
     const tabs = `
       <div class="settle-tabs" role="tablist" aria-label="Кому">
         ${Object.keys(SETTLE).map((k) => `
           <button type="button" role="tab" aria-selected="${k === settleTab}" class="settle-tab ${k === settleTab ? 'is-active' : ''}" data-settle-tab="${k}">
             <i data-lucide="${SETTLE[k].icon}" class="h-4 w-4"></i>
-            <span class="min-w-0"><span class="block truncate">${SETTLE[k].title}</span><span class="num block text-xs font-normal opacity-80">${all[k].length ? signedUah(sum(all[k])) : '—'}</span></span>
+            <span class="min-w-0"><span class="block truncate">${SETTLE[k].title}</span><span class="num block text-xs font-normal opacity-80 ${k === 'customers' && debts.overdue ? 'text-loss' : ''}">${tabSum(k)}</span></span>
           </button>`).join('')}
       </div>`;
 
+    if (settleTab === 'customers') { box.innerHTML = renderCustomers(tabs); box.dataset.tab = settleTab; return; }
     if (!L.length) {
       const [title, text, action, btn, icon] = S.empty;
       box.innerHTML = tabs + `
@@ -1260,6 +1270,203 @@
     toast('ТО записано');
   }
 
+  // ---------- Борги замовників ----------
+  const dueText = (it) => it.daysLeft === null ? 'строк не вказано'
+    : it.daysLeft < 0 ? `прострочено ${-it.daysLeft} ${plural(-it.daysLeft, 'день', 'дні', 'днів')}`
+    : it.daysLeft === 0 ? 'строк сьогодні'
+    : `до ${fmtDate(it.due)} · ще ${it.daysLeft} ${plural(it.daysLeft, 'день', 'дні', 'днів')}`;
+
+  function markPaid(id) {
+    const t = trips.find((x) => x.id === id);
+    if (!t || t.payStatus !== 'waiting') return;
+    const amount = calcTrip(t, settings).received;
+    if (!confirm(`Позначити, що ${t.customer || 'замовник'} оплатив ${uah(amount)} за рейс ${fmtDate(t.startDate)}?`)) return;
+    Object.assign(t, { payStatus: 'paid', paidDate: today(), payDue: '', updatedAt: Date.now() });
+    saveTrips();
+    renderAll();
+    toast('Оплату записано');
+  }
+
+  function renderCustomers(tabs) {
+    const D = customerDebts(trips, settings, today());
+    if (!D.count) {
+      return tabs + `
+        <div class="card"><div class="empty-hero empty-compact">
+          <div class="empty-icon" aria-hidden="true"><i data-lucide="building-2"></i></div>
+          <h2 class="empty-title">Замовники нічого не винні</h2>
+          <p class="mx-auto mt-2 max-w-lg text-sm text-slate-400">Коли гроші за рейс ще не прийшли — відкрийте рейс, у блоці <b class="text-slate-200">«Замовник і оплата»</b> виберіть «Чекаємо оплату» і вкажіть, до якого числа мають заплатити. Тут буде список боржників, а прострочені — ще й на панелі та в Telegram.</p>
+        </div></div>`;
+    }
+    const head = `
+      <div class="card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div class="min-w-0">
+          <h2 class="card-title">Замовники: скільки винні вам</h2>
+          <p class="text-xs text-slate-400">Рейси зі статусом «Чекаємо оплату». Сума — усе, що має заплатити замовник за рейс. Прийшли гроші — натисніть «Оплачено».</p>
+        </div>
+        <div class="shrink-0 text-left sm:text-right">
+          <div class="num text-2xl font-extrabold text-white">${uah(D.total)}</div>
+          <div class="text-xs ${D.overdue ? 'text-loss font-semibold' : 'text-slate-500'}">${D.overdue ? `прострочено ${uah(D.overdue)}` : 'прострочених немає'}</div>
+        </div>
+      </div>`;
+    const cards = D.customers.map((g) => `
+      <article class="card owner-card">
+        <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div class="flex min-w-0 items-center gap-2">
+            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sky-500/15 text-sky-300"><i data-lucide="building-2" class="h-5 w-5"></i></span>
+            <div class="min-w-0"><h3 class="truncate text-lg font-bold text-white">${escapeHtml(g.name)}</h3>
+            <div class="text-xs text-slate-500">${g.items.length} ${plural(g.items.length, 'рейс', 'рейси', 'рейсів')} чекають оплату</div></div>
+          </div>
+          <div class="owner-balance">
+            <div class="text-xs text-slate-400">Винен вам</div>
+            <div class="num text-3xl font-extrabold text-white">${uah(g.total)}</div>
+            ${g.overdue ? `<div class="text-xs font-semibold text-loss">з них прострочено ${uah(g.overdue)}</div>` : ''}
+          </div>
+        </div>
+        <ul class="mt-3 divide-y divide-white/5">${g.items.map((it) => `
+          <li class="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center sm:gap-3">
+            <button type="button" class="min-w-0 flex-1 text-left" data-open="${escapeHtml(it.t.id)}">
+              <span class="block text-sm text-white">${tripDates(it.t)}${it.t.route ? ' · ' + escapeHtml(it.t.route) : ''}</span>
+              <span class="block text-xs ${it.isOverdue ? 'font-semibold text-loss' : it.daysLeft === 0 ? 'text-amber-300' : 'text-slate-500'}">${dueText(it)}${tripPlate(it.t).plate ? ' · ' + escapeHtml(tripPlate(it.t).plate) : ''}</span>
+            </button>
+            <span class="num shrink-0 font-semibold text-white">${uah(it.amount)}</span>
+            <button type="button" class="btn-ghost !min-h-0 shrink-0 !px-3 !py-1.5 text-xs" data-mark-paid="${escapeHtml(it.t.id)}"><i data-lucide="check" class="h-4 w-4"></i><span>Оплачено</span></button>
+          </li>`).join('')}</ul>
+      </article>`).join('');
+    return tabs + head + cards;
+  }
+
+  // ---------- Панель: борги і прогноз на місяць ----------
+  function renderDashExtra() {
+    const box = $('#dashExtra');
+    if (!trips.length) { box.innerHTML = ''; return; }
+    const D = customerDebts(trips, settings, today());
+    const F = monthForecast(trips, settings, expenses, today());
+    const debts = D.count ? `
+      <div class="card">
+        <div class="mb-3 flex items-center gap-2">
+          <i data-lucide="building-2" class="h-5 w-5 ${D.overdue ? 'text-loss' : 'text-sky-300'}"></i>
+          <h2 class="card-title">Борги замовників</h2>
+        </div>
+        <div class="flex flex-wrap items-end justify-between gap-3">
+          <div><div class="text-xs text-slate-400">Вам винні</div><div class="num text-3xl font-extrabold text-white">${uah(D.total)}</div>
+          <div class="text-xs text-slate-500">${D.count} ${plural(D.count, 'рейс', 'рейси', 'рейсів')} · ${D.customers.length} ${plural(D.customers.length, 'замовник', 'замовники', 'замовників')}</div></div>
+          ${D.overdue ? `<div class="text-right"><div class="text-xs text-slate-400">Прострочено</div><div class="num text-xl font-bold text-loss">${uah(D.overdue)}</div><div class="text-xs text-slate-500">${D.overdueCount} ${plural(D.overdueCount, 'рейс', 'рейси', 'рейсів')}</div></div>` : ''}
+        </div>
+        <ul class="mt-3 space-y-1 text-sm">${D.customers.slice(0, 4).map((g) => `<li class="flex justify-between gap-3"><span class="truncate text-slate-300">${escapeHtml(g.name)}</span><span class="num shrink-0 ${g.overdue ? 'text-loss' : 'text-slate-200'}">${uah(g.total)}</span></li>`).join('')}</ul>
+        <a href="#settle" class="btn-ghost mt-3" data-settle-go="customers"><span>Усі боржники</span><i data-lucide="arrow-right" class="h-4 w-4"></i></a>
+      </div>` : '';
+    const pct = F.bizExpenses > 0 ? Math.min(100, Math.max(0, (F.owner / F.bizExpenses) * 100)) : 100;
+    const mName = monthLabel(F.month, true);
+    const verdict = F.bizExpenses <= 0
+      ? '<p class="text-sm text-slate-300">Витрат бізнесу на цей місяць не внесено — весь ваш прибуток лишається вам.</p>'
+      : F.covered
+        ? '<p class="text-sm text-profit"><b>Витрати вже покрито.</b> Усе, що заробите далі, — чистими вам.</p>'
+        : `<p class="text-sm text-slate-200">Щоб покрити витрати, треба ще <b class="text-white">${uah(F.needMore)}</b> вашого прибутку${F.freightNeeded ? ` — це приблизно <b class="text-white">${uah(F.freightNeeded)}</b> фрахту` : ''}.</p>`;
+    const forecast = `
+      <div class="card">
+        <div class="mb-3 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-2"><i data-lucide="target" class="h-5 w-5 text-amber-300"></i><h2 class="card-title">Прогноз: ${mName.toLowerCase()}</h2></div>
+          <span class="text-xs text-slate-500">${F.day} з ${F.daysInMonth} днів</span>
+        </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div><div class="text-xs text-slate-400">Ваш прибуток з рейсів</div><div class="num text-xl font-bold ${profitClass(F.owner)}">${uah(F.owner)}</div><div class="text-xs text-slate-500">${F.count} ${plural(F.count, 'рейс', 'рейси', 'рейсів')} · фрахт ${uah(F.freight)}</div></div>
+          <div><div class="text-xs text-slate-400">Витрати бізнесу</div><div class="num text-xl font-bold text-slate-200">${uah(F.bizExpenses)}</div><div class="text-xs text-slate-500">${F.monthlyRate ? 'постійні ' + uah(F.monthlyRate) + (F.bizEntries ? ' + записи' : '') : 'вкладка «Витрати»'}</div></div>
+        </div>
+        ${F.bizExpenses > 0 ? `<div class="bar mt-3"><i style="width:${pct}%;background:${F.covered ? 'var(--profit)' : 'var(--signal)'}"></i></div>
+        <div class="mt-1 text-xs text-slate-500">покрито ${fmtInt.format(pct)}% витрат</div>` : ''}
+        <div class="mt-3">${verdict}</div>
+        <div class="preview-sep"></div>
+        <dl class="space-y-1 text-sm">
+          <div class="preview-row"><dt>Якщо темп збережеться, фрахт за місяць</dt><dd>≈ ${uah(F.projFreight)}</dd></div>
+          <div class="preview-row"><dt>Ваш прибуток після витрат бізнесу</dt><dd class="${profitClass(F.projProfit)}">≈ ${uah(F.projProfit)}</dd></div>
+          ${F.prevProfit !== null ? `<div class="preview-row"><dt>Минулого місяця (${monthLabel(F.prevMonth, true).toLowerCase()})</dt><dd class="${profitClass(F.prevProfit)}">${uah(F.prevProfit)}</dd></div>` : ''}
+        </dl>
+        <p class="mt-2 text-xs text-slate-500">Прогноз простий: заробили за ${F.day} ${plural(F.day, 'день', 'дні', 'днів')} → множимо на весь місяць. Рейси рахуються за датою початку.</p>
+      </div>`;
+    box.innerHTML = debts + forecast;
+    box.classList.toggle('lg:grid-cols-2', !!debts);
+  }
+
+  // ---------- Календар авто ----------
+  let calMonth = ''; // поточний місяць ставимо при першому показі (today оголошено нижче)
+  const blockForm = $('#blockForm');
+  const shiftMonth = (m, by) => { const [y, mm] = m.split('-').map(Number); return new Date(Date.UTC(y, mm - 1 + by, 1)).toISOString().slice(0, 7); };
+  const WD = ['Нд', 'Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб'];
+
+  function renderCalendar() {
+    const box = $('#calendarSection');
+    box.classList.toggle('hidden', !cars.length);
+    if (!cars.length) return;
+    if (!calMonth) calMonth = today().slice(0, 7);
+    const K = carCalendar(cars.slice().sort(sortByLabel(carLabel)), trips, blocks, calMonth, today());
+    $('#calMonthLabel').textContent = monthLabel(calMonth, true);
+    const t0 = today();
+    const head = K.rows[0].days.map((d) => {
+      const wd = new Date(d.date + 'T00:00:00Z').getUTCDay();
+      return `<th class="cal-h ${wd === 0 || wd === 6 ? 'is-we' : ''} ${d.date === t0 ? 'is-today' : ''}"><span>${d.day}</span><small>${WD[wd]}</small></th>`;
+    }).join('');
+    const title = (d) => d.state === 'trip' ? `${fmtDate(d.date)} · у рейсі${d.route ? ': ' + d.route : ''}`
+      : d.state === 'repair' ? `${fmtDate(d.date)} · ремонт${d.note ? ': ' + d.note : ''} — натисніть, щоб прибрати`
+      : d.state === 'idle' ? `${fmtDate(d.date)} · стоїть — натисніть, щоб позначити ремонт`
+      : `${fmtDate(d.date)} — натисніть, щоб запланувати ремонт`;
+    const action = (r, d) => d.state === 'trip' ? `data-open="${escapeHtml(d.tripId)}"`
+      : d.state === 'repair' ? `data-cal-block="${escapeHtml(d.blockId)}"`
+      : `data-cal-free="${escapeHtml(r.carId)}|${d.date}"`;
+    const body = K.rows.map((r) => `
+      <tr>
+        <th class="cal-car">${plateHtml(r.plate || '—')}<small>${r.tripDays} в рейсі · ${r.repairDays ? r.repairDays + ' ремонт · ' : ''}<span class="${r.idleDays ? 'text-amber-300' : ''}">${r.idleDays} стоїть</span></small></th>
+        ${r.days.map((d) => `<td class="cal-c is-${d.state} ${d.date === t0 ? 'is-today' : ''}"><button type="button" title="${escapeHtml(title(d))}" aria-label="${escapeHtml((r.plate || '') + ', ' + title(d))}" ${action(r, d)}></button></td>`).join('')}
+      </tr>`).join('');
+    const tot = K.rows.reduce((a, r) => ({ trip: a.trip + r.tripDays, repair: a.repair + r.repairDays, idle: a.idle + r.idleDays }), { trip: 0, repair: 0, idle: 0 });
+    $('#calGrid').innerHTML = `<table class="cal-table"><thead><tr><th class="cal-car"></th>${head}</tr></thead><tbody>${body}</tbody></table>
+      <p class="mt-2 text-xs text-slate-500">Разом за ${monthLabel(calMonth, true).toLowerCase()} (авто-днів): ${tot.trip} у рейсах, ${tot.repair} на ремонті, <span class="${tot.idle ? 'text-amber-300' : ''}">${tot.idle} простою</span>.</p>`;
+    // Список ремонтів цього місяця
+    const mStart = calMonth + '-01';
+    const mEnd = calMonth + '-' + String(K.daysInMonth).padStart(2, '0');
+    const list = blocks.filter((b) => b.from <= mEnd && b.to >= mStart).sort((a, b) => a.from.localeCompare(b.from));
+    $('#calBlocks').innerHTML = (list.length ? `<div class="text-xs font-medium text-slate-400">Ремонти в цьому місяці</div><ul class="mt-1 divide-y divide-white/5">${list.map((b) => {
+      const car = cars.find((c) => c.id === b.carId);
+      return `<li class="flex items-center gap-3 py-2 text-sm">${plateHtml(car ? car.plate : '—')}<span class="min-w-0 flex-1 truncate text-slate-300">${fmtDate(b.from)} — ${fmtDate(b.to)}${b.note ? ' · ' + escapeHtml(b.note) : ''}</span>
+        <button type="button" class="icon-btn danger" data-del-block="${escapeHtml(b.id)}" title="Видалити" aria-label="Видалити ремонт"><i data-lucide="trash-2" class="h-4 w-4"></i></button></li>`;
+    }).join('')}</ul>` : '') + `<button type="button" class="btn-ghost mt-2 !min-h-0 !px-3 !py-1.5 text-xs" data-cal-free=""><i data-lucide="wrench" class="h-4 w-4"></i><span>Позначити ремонт</span></button>`;
+  }
+
+  function openBlockForm(ref) {
+    const [carId = '', date = ''] = String(ref || '').split('|');
+    blockForm.elements.carId.innerHTML = cars.slice().sort(sortByLabel(carLabel)).map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(carLabel(c))}</option>`).join('');
+    if (carId) blockForm.elements.carId.value = carId;
+    blockForm.elements.from.value = date || today();
+    blockForm.elements.to.value = date || today();
+    blockForm.elements.note.value = '';
+    $$('.invalid', blockForm).forEach((el) => el.classList.remove('invalid'));
+    blockForm.classList.remove('hidden');
+    blockForm.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    refreshIcons();
+  }
+  $('#blockCancel').addEventListener('click', () => blockForm.classList.add('hidden'));
+  blockForm.addEventListener('submit', (e) => {
+    e.preventDefault();
+    const el = blockForm.elements;
+    const rec = { id: uid(), carId: el.carId.value, from: el.from.value, to: el.to.value, note: el.note.value.trim().slice(0, 100), createdAt: Date.now() };
+    el.from.classList.toggle('invalid', !/^\d{4}-\d{2}-\d{2}$/.test(rec.from));
+    el.to.classList.toggle('invalid', !/^\d{4}-\d{2}-\d{2}$/.test(rec.to) || rec.to < rec.from);
+    if (!cars.some((c) => c.id === rec.carId)) return toast('Виберіть авто', 'err');
+    if (!validBlock(rec)) return toast('Перевірте дати: «по» не може бути раніше «з»', 'err');
+    blocks.push(rec);
+    saveSettings();
+    blockForm.classList.add('hidden');
+    renderAll();
+    toast('Ремонт позначено');
+  });
+  function deleteBlock(id) {
+    const b = blocks.find((x) => x.id === id);
+    if (!b || !confirm(`Прибрати позначку ремонту ${fmtDate(b.from)} — ${fmtDate(b.to)}?`)) return;
+    blocks = blocks.filter((x) => x.id !== id);
+    saveSettings();
+    renderAll();
+    toast('Позначку видалено', 'info');
+  }
+
   // ---------- Документи для друку / PDF ----------
   // Світлий шаблон: відкривається в новій вкладці, кнопка «Зберегти PDF» викликає друк браузера
   // (там можна вибрати «Зберегти як PDF»). Назва вкладки стає назвою файлу.
@@ -1512,6 +1719,14 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
        </div>`;
   }
 
+  /** Статус оплати рейсу для показу (HTML). */
+  function payStatusHtml(t) {
+    if (t.payStatus !== 'waiting') return `<span class="text-profit">оплачено${t.paidDate ? ' ' + fmtDate(t.paidDate) : ''}</span>`;
+    const d = t.payDue ? Calc.daysUntil(t.payDue, today()) : null;
+    const when = d === null ? 'строк не вказано' : d < 0 ? `прострочено ${-d} ${plural(-d, 'день', 'дні', 'днів')}` : d === 0 ? 'строк сьогодні' : `до ${fmtDate(t.payDue)}`;
+    return `<span class="${d !== null && d < 0 ? 'text-loss font-semibold' : 'text-amber-300'}">чекаємо · ${when}</span>`;
+  }
+
   function renderTripView() {
     const t = trips.find((x) => x.id === viewingId);
     if (!t) { closeModal($('#viewModal')); return; }
@@ -1532,6 +1747,8 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
           row('Водій', escapeHtml(tripDriver(t) || '—')) +
           row('Авто', escapeHtml(tripCar(t) || '—')) +
           (t.managed ? row('Власник авто', escapeHtml(t.ownerName || '—') + ` · ваша частка ${fmtL.format(c.mgmtShare)}%`, 'text-slate-200') : '') +
+          row('Замовник', escapeHtml(t.customer || '—')) +
+          row('Оплата', payStatusHtml(t)) +
           row('Нотатка', escapeHtml(t.note || '—'), 'font-normal text-slate-300'))}
         ${block('gauge', 'Пробіг',
           row('Діб у рейсі', c.days) +
@@ -1629,8 +1846,8 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
   }
 
   const tripForm = $('#tripForm');
-  const FIELDS = ['driverId', 'carId', 'startDate', 'endDate', 'route', 'odoStart', 'odoEnd', 'fuelLiters', 'fuelPrice', 'fuelPriceActual', 'cash', 'bank', 'card', 'dispatch', 'repairExpenses', 'otherExpenses', 'note', 'perDiem', 'stoRate', 'taxRate', 'driverRate', 'partnerRate', 'logistRate', 'mgmtShare'];
-  const TEXT_FIELDS = ['driverId', 'carId', 'startDate', 'endDate', 'route', 'note'];
+  const FIELDS = ['driverId', 'carId', 'startDate', 'endDate', 'route', 'odoStart', 'odoEnd', 'fuelLiters', 'fuelPrice', 'fuelPriceActual', 'cash', 'bank', 'card', 'dispatch', 'repairExpenses', 'otherExpenses', 'note', 'perDiem', 'stoRate', 'taxRate', 'driverRate', 'partnerRate', 'logistRate', 'mgmtShare', 'customer', 'payStatus', 'payDue'];
+  const TEXT_FIELDS = ['driverId', 'carId', 'startDate', 'endDate', 'route', 'note', 'customer', 'payStatus', 'payDue'];
 
   /** Списки водіїв/авто у формі рейсу. Якщо в рейсі вказано вже видаленого — показуємо його окремо. */
   function renderTripSelects(t) {
@@ -1689,6 +1906,20 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
   function fillForm(t) {
     renderTripSelects(t);
     for (const f of FIELDS) tripForm.elements[f].value = t[f] ?? '';
+    // Старі рейси без статусу — оплачені
+    tripForm.elements.payStatus.value = t.payStatus === 'waiting' ? 'waiting' : 'paid';
+    // Підказки замовників — з уже внесених рейсів
+    const names = new Map();
+    for (const x of trips) { const n = cleanName(x.customer); if (n && !names.has(ownerKey(n))) names.set(ownerKey(n), n); }
+    $('#customersList').innerHTML = Array.from(names.values()).sort((a, b) => a.localeCompare(b, 'uk')).map((n) => `<option value="${escapeHtml(n)}"></option>`).join('');
+    syncPayUi();
+  }
+
+  /** Поле «Оплатити до» — лише коли чекаємо оплату. */
+  function syncPayUi() {
+    const waiting = tripForm.elements.payStatus.value === 'waiting';
+    $('#payDueWrap').classList.toggle('hidden', !waiting);
+    $('#payHint').classList.toggle('hidden', !waiting);
   }
 
   function lastTrip() {
@@ -1713,6 +1944,9 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
         tripForm.elements.fuelLiters.value = '';
         tripForm.elements.repairExpenses.value = '';
         for (const f of ['cash', 'bank', 'card', 'dispatch']) tripForm.elements[f].value = '';
+        tripForm.elements.payStatus.value = 'paid';
+        tripForm.elements.payDue.value = '';
+        syncPayUi();
       }
     } else {
       const prev = lastTrip();
@@ -1857,12 +2091,14 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
       if (d[f] !== '' && d[f] < 0) { errors.push('Значення не можуть бути відʼємними.'); mark(f); break; }
     }
     if (num(d.dispatch) > num(d.cash) + num(d.bank) + num(d.card)) { errors.push('Диспетчерські більші за отриману суму.'); mark('dispatch'); }
+    if (d.payStatus === 'waiting' && d.payDue && !/^\d{4}-\d{2}-\d{2}$/.test(d.payDue)) { errors.push('Невірна дата «Оплатити до».'); mark('payDue'); }
     return errors;
   }
 
   tripForm.addEventListener('input', (e) => {
     if (e.target.classList.contains('invalid')) e.target.classList.remove('invalid');
     if (e.target.name === 'carId') syncMgmtUi(true);
+    if (e.target.name === 'payStatus') syncPayUi();
     updatePreview();
   });
   tripForm.elements.carId.addEventListener('change', () => { syncMgmtUi(true); updatePreview(); });
@@ -1887,6 +2123,14 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     if (d.partnerRate === '') d.partnerRate = settings.partnerRate;
     if (d.logistRate === '') d.logistRate = settings.logistRate;
     if (d.managed && d.mgmtShare === '') d.mgmtShare = num(formMgmt().share);
+    // Оплата: «чекаємо» → з датою строку; «оплачено» → без строку, запамʼятовуємо день оплати
+    d.customer = cleanName(d.customer).slice(0, 80);
+    if (d.payStatus !== 'waiting') {
+      d.payStatus = 'paid';
+      d.payDue = '';
+      const prev = editingId && trips.find((t) => t.id === editingId);
+      if (prev && prev.payStatus === 'waiting') d.paidDate = today();
+    } else d.paidDate = '';
     // Запамʼятовуємо імʼя водія та номер авто — щоб рейс зберіг їх, навіть якщо їх видалять із довідника
     const drv = drivers.find((x) => x.id === d.driverId);
     const car = cars.find((x) => x.id === d.carId);
@@ -1918,6 +2162,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     settingsForm.elements.logistRate.value = settings.logistRate;
     settingsForm.elements.mgmtShare.value = settings.mgmtShare;
     settingsForm.elements.monthlyExpenses.value = settings.monthlyExpenses || '';
+    settingsForm.elements.telegramChatId.value = settings.telegramChatId || '';
     openModal($('#settingsModal'));
   });
   settingsForm.addEventListener('submit', (e) => {
@@ -1933,11 +2178,41 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
       logistRate: read('logistRate', DEFAULTS.logistRate),
       monthlyExpenses: read('monthlyExpenses', DEFAULTS.monthlyExpenses),
       mgmtShare: Math.min(100, read('mgmtShare', DEFAULTS.mgmtShare)),
+      telegramChatId: readChatId(),
     });
     saveSettings();
     closeModal($('#settingsModal'));
     renderAll();
     toast('Ставки збережено');
+  });
+
+  // ---------- Telegram-нагадування ----------
+  // Chat ID — число (для груп — з мінусом). Невірне значення не зберігаємо.
+  function readChatId() {
+    const v = settingsForm.elements.telegramChatId.value.trim();
+    return /^-?\d{5,15}$/.test(v) ? v : '';
+  }
+  $('#tgTest').addEventListener('click', async () => {
+    const btn = $('#tgTest');
+    const id = readChatId();
+    const raw = settingsForm.elements.telegramChatId.value.trim();
+    settingsForm.elements.telegramChatId.classList.toggle('invalid', !id);
+    if (!id) return toast(raw ? 'Chat ID — це число, напр. 123456789' : 'Спершу вкажіть свій chat ID', 'err');
+    btn.disabled = true;
+    try {
+      settings.telegramChatId = id;
+      saveSettings();
+      await Cloud.flush(); // сервер читає chat ID з бази — спершу зберігаємо
+      const token = await Cloud.token();
+      const res = await fetch('/.netlify/functions/tg-test', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+      const out = await res.json().catch(() => ({}));
+      if (res.ok && out.ok) toast('Надіслано! Перевірте Telegram');
+      else toast(out.error || 'Не вдалося надіслати. Спробуйте пізніше.', 'err');
+    } catch (err) {
+      toast('Немає звʼязку з сервером', 'err');
+    } finally {
+      btn.disabled = false;
+    }
   });
 
   // ---------- Довідник: водії та авто ----------
@@ -2039,7 +2314,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     refreshIcons();
   }
 
-  const CAR_SERVICE_FIELDS = ['serviceEveryKm', 'serviceLastOdo', 'insuranceUntil', 'inspectionUntil', 'tachoUntil'];
+  const CAR_SERVICE_FIELDS = ['serviceEveryKm', 'serviceLastOdo', ...DOC_FIELDS];
 
   function editCar(id) {
     const c = cars.find((x) => x.id === id);
@@ -2090,7 +2365,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
       el[f].classList.toggle('invalid', bad);
       if (bad) badSvc = true;
     }
-    for (const f of ['insuranceUntil', 'inspectionUntil', 'tachoUntil']) {
+    for (const f of DOC_FIELDS) {
       const v = el[f].value;
       svc[f] = /^\d{4}-\d{2}-\d{2}$/.test(v) ? v : '';
     }
@@ -2937,6 +3212,18 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     if (payBtn) return openPayout(payBtn.dataset.payout);
     const delPay = e.target.closest('[data-del-payout]');
     if (delPay) return deletePayout(delPay.dataset.delPayout);
+    const mp = e.target.closest('[data-mark-paid]');
+    if (mp) return markPaid(mp.dataset.markPaid);
+    const sg = e.target.closest('[data-settle-go]');
+    if (sg) { settleTab = sg.dataset.settleGo; renderSettle(); return; } // далі браузер перейде по href="#settle"
+    const cs = e.target.closest('[data-cal-shift]');
+    if (cs) { calMonth = shiftMonth(calMonth, Number(cs.dataset.calShift)); blockForm.classList.add('hidden'); renderCalendar(); refreshIcons(); return; }
+    const cf = e.target.closest('[data-cal-free]');
+    if (cf) return openBlockForm(cf.dataset.calFree);
+    const cb = e.target.closest('[data-cal-block]');
+    if (cb) return deleteBlock(cb.dataset.calBlock);
+    const dbk = e.target.closest('[data-del-block]');
+    if (dbk) return deleteBlock(dbk.dataset.delBlock);
     const st = e.target.closest('[data-settle-tab]');
     if (st) { settleTab = st.dataset.settleTab; renderSettle(); refreshIcons(); return; }
     const exEdit = e.target.closest('[data-edit-expense]');

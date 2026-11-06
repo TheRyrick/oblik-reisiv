@@ -264,3 +264,90 @@ test('захист: сміття в даних не ламає розрахун�
   const L = C.ownerLedger([{ managed: true, ownerName: '' }], [{ owner: '', amount: 5 }, null].filter(Boolean));
   assert.equal(L.length, 0);
 });
+
+test('борги замовників: лише «чекаємо», прострочка, групування', () => {
+  const T = [
+    trip({ id: '1', customer: 'ТОВ Альфа', payStatus: 'waiting', payDue: '2026-11-01' }), // прострочено 5 дн
+    trip({ id: '2', customer: ' тов  альфа ', payStatus: 'waiting', payDue: '2026-11-20' }), // та сама фірма
+    trip({ id: '3', customer: 'Бета', payStatus: 'waiting' }),                               // без строку
+    trip({ id: '4', customer: 'Бета', payStatus: 'paid' }),
+    trip({ id: '5', customer: 'Бета' }),                                                    // старий рейс — оплачений
+  ];
+  const D = C.customerDebts(T, {}, '2026-11-06');
+  assert.equal(D.count, 3);
+  assert.equal(D.total, 180000);
+  assert.equal(D.overdue, 60000);
+  assert.equal(D.overdueCount, 1);
+  assert.equal(D.customers.length, 2);
+  const a = D.customers[0];
+  assert.equal(a.key, 'тов альфа');
+  assert.equal(a.items.length, 2);
+  assert.equal(a.items[0].daysLeft, -5);
+  assert.equal(a.items[0].isOverdue, true);
+  assert.equal(D.customers[1].items[0].daysLeft, null);
+});
+
+test('прогноз місяця: темп і скільки треба для покриття витрат', () => {
+  const t = trip({ startDate: '2026-11-02', endDate: '2026-11-04' });
+  const c = C.calcTrip(t);
+  const F = C.monthForecast([t, trip({ startDate: '2026-10-05', endDate: '2026-10-06' })], { monthlyExpenses: 10000 },
+    [{ id: 'e', date: '2026-11-03', amount: 1e6 }, { id: 'f', date: '2026-10-03', amount: 999 }], '2026-11-10');
+  assert.equal(F.month, '2026-11');
+  assert.equal(F.daysInMonth, 30);
+  assert.equal(F.count, 1);
+  near(F.owner, c.ownerProfit);
+  assert.equal(F.bizExpenses, 1010000);
+  near(F.projOwner, c.ownerProfit * 3);
+  near(F.needMore, 1010000 - c.ownerProfit);
+  assert.equal(F.covered, false);
+  assert.ok(F.freightNeeded > F.needMore, 'фрахту треба більше, ніж прибутку');
+  assert.equal(F.prevMonth, '2026-10');
+  assert.equal(F.prevCount, 1);
+  // Без витрат — покрито, догоняти нічого
+  const G = C.monthForecast([t], {}, [], '2026-11-30');
+  assert.equal(G.covered, true);
+  assert.equal(G.needMore, 0);
+  near(G.projOwner, c.ownerProfit);
+  assert.equal(C.monthForecast([], {}, [], '2026-01-15').prevMonth, '2025-12');
+});
+
+test('календар авто: рейс, ремонт, простій, майбутнє', () => {
+  const cars = [{ id: 'a', plate: 'AA1111AA' }, { id: 'b', plate: 'BB2222BB' }];
+  const T = [{ id: 't', carId: 'a', startDate: '2026-10-30', endDate: '2026-11-03', route: 'Київ' }];
+  const B = [{ id: 'r', carId: 'a', from: '2026-11-03', to: '2026-11-05' }, { id: 'x', carId: 'b', from: 'bad', to: '2026-11-05' }];
+  const K = C.carCalendar(cars, T, B, '2026-11', '2026-11-06');
+  assert.equal(K.daysInMonth, 30);
+  const a = K.rows[0];
+  assert.equal(a.days[0].state, 'trip');
+  assert.equal(a.days[2].state, 'trip', 'рейс важливіший за ремонт');
+  assert.equal(a.days[3].state, 'repair');
+  assert.equal(a.days[5].state, 'idle');
+  assert.equal(a.days[6].state, 'future');
+  assert.equal(a.tripDays, 3);
+  assert.equal(a.repairDays, 2);
+  assert.equal(a.idleDays, 1);
+  assert.equal(K.rows[1].idleDays, 6, 'зіпсований запис ремонту ігнорується');
+  assert.equal(C.daysInMonth('2028-02'), 29);
+});
+
+test('документи: ліцензія і дозвіл у нагадуваннях', () => {
+  const R = C.carReminders([{ id: 'a', plate: 'A', licenseUntil: '2026-11-10', permitUntil: '2026-10-01' }], [], '2026-11-06');
+  assert.equal(R.length, 2);
+  assert.equal(R[0].type, 'permit');
+  assert.equal(R[0].level, 'overdue');
+  assert.equal(R[1].label, 'Ліцензія');
+});
+
+test('щоденне нагадування для Telegram', () => {
+  const data = {
+    cars: [{ id: 'a', plate: 'AA1111AA', insuranceUntil: '2026-11-08' }],
+    trips: [trip({ customer: 'Альфа', payStatus: 'waiting', payDue: '2026-11-01', route: 'Київ → Львів' }), trip({ customer: 'Бета', payStatus: 'waiting', payDue: '2026-12-01' })],
+    settings: {},
+  };
+  const txt = C.dailyDigest(data, '2026-11-06');
+  assert.match(txt, /AA1111AA — Страховка: ще 2 дн\. \(до 08\.11\.2026\)/);
+  assert.match(txt, /Альфа — 60 000 ₴, прострочено 5 дн\./);
+  assert.doesNotMatch(txt, /Бета/, 'не прострочений борг не турбує');
+  assert.equal(C.dailyDigest({ cars: [], trips: [] }, '2026-11-06'), '');
+  assert.match(C.dailyDigest({}, '2026-11-06', { always: true }), /Усе гаразд/);
+});

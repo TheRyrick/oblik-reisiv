@@ -38,7 +38,7 @@
   window.Cloud = {
     get: (k, f) => (k in cache ? JSON.parse(JSON.stringify(cache[k])) : f),
     set: (k, v) => { cache[k] = JSON.parse(JSON.stringify(v)); window.__saved.push(k); },
-    has: (k) => k in cache, flush: async () => {}, refresh: async () => {}, status: () => 'saved', on: () => {},
+    has: (k) => k in cache, flush: async () => {}, token: async () => 'test', refresh: async () => {}, status: () => 'saved', on: () => {},
     _cache: cache,
   };
   // Діалоги підтвердження в тестах — завжди «ОК»

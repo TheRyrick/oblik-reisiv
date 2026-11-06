@@ -21,9 +21,11 @@
     'check-circle-2': 'check-circle', 'alert-circle': 'warning-circle', 'info': 'info',
     'key-round': 'key', 'arrow-up-right': 'arrow-up-right', 'arrow-down-left': 'arrow-down-left', 'scale': 'scales',
     'history': 'clock-counter-clockwise', 'chevron-down': 'caret-down', 'file-text': 'file-pdf',
+    'building-2': 'buildings', 'chevron-left': 'caret-left', 'clock': 'clock', 'target': 'target',
+    'calendar-x': 'calendar-x', 'bell': 'bell-ringing',
   };
   // Іконки, які краще виглядають «повними» (не duotone)
-  const BOLD = new Set(['plus', 'x', 'check', 'chevron-right', 'arrow-right']);
+  const BOLD = new Set(['plus', 'x', 'check', 'chevron-right', 'chevron-left', 'arrow-right']);
 
   function convert(root) {
     const list = root.querySelectorAll ? root.querySelectorAll('i[data-lucide]') : [];

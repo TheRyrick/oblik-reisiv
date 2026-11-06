@@ -144,7 +144,7 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
       const ownerAccrued = tr.filter((t) => t.managed).reduce((a, t) => a + Calc.calcTrip(t, set).carOwnerShare, 0);
       const tabs = [...document.querySelectorAll('[data-settle-tab]')].map((b) => b.innerText.replace(/\\s+/g, ' '));
       return { partnerAccrued, ownerAccrued, tabs, filtersHidden: document.querySelector('#filtersBox').style.display === 'none', ownerCard: document.querySelector('.owner-card .owner-balance').innerText };`);
-    check('розрахунки: три розділи і без фільтрів', st.tabs.length === 3 && st.filtersHidden, st.tabs);
+    check('розрахунки: чотири розділи (з замовниками) і без фільтрів', st.tabs.length === 4 && st.filtersHidden, st.tabs);
     check('розрахунки: борг власнику = нараховано − 10 000', st.ownerCard.replace(/\s/g, '').includes(String(Math.round(st.ownerAccrued - 10000))), st);
     await shot('03-settle-owners');
     await ev(`document.querySelector('[data-settle-tab="partner"]').click()`); await sleep(250);
@@ -223,6 +223,63 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
     await ev(`document.querySelector('#tripForm').requestSubmit()`); await sleep(300);
     check('рейс збережено як «під управлінням»', await ev(`const t = Cloud._cache.trips.at(-1); return t.managed === true && t.ownerName === 'Петренко Іван' && t.mgmtShare === 30`));
 
+
+    // ===== Борги замовників =====
+    await go('#trips');
+    await ev(`document.querySelector('[data-edit="t1"]').click()`); await sleep(300);
+    const payUi0 = await ev(`return document.querySelector('#payDueWrap').classList.contains('hidden')`);
+    await ev(`const f = document.querySelector('#tripForm'); f.customer.value = '  ТОВ <img src=x onerror=window.__xss=11>  Альфа '; const r = f.querySelector('input[name="payStatus"][value="waiting"]'); r.checked = true; r.dispatchEvent(new Event('input', { bubbles: true }));`); await sleep(100);
+    const payUi1 = await ev(`return !document.querySelector('#payDueWrap').classList.contains('hidden')`);
+    await ev(`const f = document.querySelector('#tripForm'); f.payDue.value = '2026-10-20'; f.requestSubmit()`); await sleep(400);
+    const t1s = await ev(`const t = Cloud._cache.trips.find((x) => x.id === 't1'); return { st: t.payStatus, due: t.payDue, c: t.customer }`);
+    check('рейс: «Чекаємо оплату» показує строк і зберігається', payUi0 && payUi1 && t1s.st === 'waiting' && t1s.due === '2026-10-20' && t1s.c === 'ТОВ <img src=x onerror=window.__xss=11> Альфа', t1s);
+    await ev(`const m = document.querySelector('#viewModal [data-close]'); if (m) m.click()`); await sleep(150);
+    await go('');
+    const dx = await ev(`return document.querySelector('#dashExtra').innerText`);
+    check('панель: блок боргів і прогноз місяця', /Борги замовників/.test(dx) && /60\s?000/.test(dx) && /Прогноз/.test(dx) && /Витрати бізнесу/.test(dx), dx.slice(0, 400));
+    await shot('08-dash-debts-forecast');
+    await go('#settle');
+    await ev(`document.querySelector('[data-settle-tab="customers"]').click()`); await sleep(250);
+    const cu = await ev(`const b = document.querySelector('#settleView'); return { text: b.innerText, img: !!b.querySelector('.owner-card img') }`);
+    check('замовники: боржник, сума, прострочка, імʼя як текст', /Альфа/.test(cu.text) && /прострочено/.test(cu.text) && /60\s?000/.test(cu.text) && !cu.img, cu.text.slice(0, 300));
+    await shot('09-settle-customers');
+    await ev(`document.querySelector('[data-mark-paid="t1"]').click()`); await sleep(300);
+    const paid = await ev(`const t = Cloud._cache.trips.find((x) => x.id === 't1'); return { st: t.payStatus, d: t.paidDate, empty: /нічого не винні/.test(document.querySelector('#settleView').innerText) }`);
+    check('замовники: «Оплачено» закриває борг', paid.st === 'paid' && /^\d{4}-\d{2}-\d{2}$/.test(paid.d) && paid.empty, paid);
+
+    // ===== Календар авто =====
+    await go('');
+    await ev(`const b = document.querySelector('[data-cal-shift="-1"]'); b.click()`); await sleep(200);
+    const cal = await ev(`return { visible: !document.querySelector('#calendarSection').classList.contains('hidden'), label: document.querySelector('#calMonthLabel').innerText, rows: document.querySelectorAll('#calGrid tbody tr').length, trip: document.querySelectorAll('#calGrid .cal-c.is-trip').length }`);
+    check('календар: 2 авто, жовтень, дні в рейсах', cal.visible && /Жовтень 2026/.test(cal.label) && cal.rows === 2 && cal.trip === 6, cal);
+    await ev(`document.querySelector('[data-cal-free="c1|2026-10-10"]').click()`); await sleep(150);
+    await ev(`const f = document.querySelector('#blockForm'); f.to.value = '2026-10-08'; f.requestSubmit()`); await sleep(200);
+    check('календар: «по» раніше «з» — не приймається', await ev(`return !(Cloud._cache.settings.carBlocks || []).length`));
+    await ev(`const f = document.querySelector('#blockForm'); f.to.value = '2026-10-12'; f.note.value = '<img src=x onerror=window.__xss=12>'; f.requestSubmit()`); await sleep(300);
+    const blk = await ev(`return { n: (Cloud._cache.settings.carBlocks || []).length, rep: document.querySelectorAll('#calGrid .cal-c.is-repair').length, list: document.querySelector('#calBlocks').innerText }`);
+    check('календар: ремонт 3 дні позначено', blk.n === 1 && blk.rep === 3 && /10\.10\.2026/.test(blk.list), blk);
+    await shot('10-calendar');
+    await ev(`document.querySelector('#calGrid .cal-c.is-repair button').click()`); await sleep(250);
+    check('календар: клік по ремонту прибирає позначку', await ev(`return Cloud._cache.settings.carBlocks.length === 0`));
+
+    // ===== Документи: ліцензія =====
+    await ev(`document.querySelector('#refsBtn').click()`); await sleep(200);
+    await ev(`document.querySelector('[data-edit-car="c1"]').click()`); await sleep(150);
+    await ev(`const f = document.querySelector('#carForm'); f.licenseUntil.value = '2026-11-15'; f.permitUntil.value = 'xx'; f.requestSubmit()`); await sleep(300);
+    const lic = await ev(`const c = Cloud._cache.cars.find((x) => x.id === 'c1'); return { l: c.licenseUntil, p: c.permitUntil }`);
+    await ev(`document.querySelector('#refsModal [data-close]').click()`); await sleep(150);
+    const rem2 = await ev(`return document.querySelector('#reminders').innerText`);
+    check('документи: ліцензія збережена і в нагадуваннях', lic.l === '2026-11-15' && lic.p === '' && /Ліцензія/.test(rem2), { lic, rem2 });
+
+    // ===== Telegram chat ID =====
+    await ev(`document.querySelector('#settingsBtn').click()`); await sleep(150);
+    await ev(`const f = document.querySelector('#settingsForm'); f.telegramChatId.value = 'abc<script>'; f.requestSubmit()`); await sleep(200);
+    const tg0 = await ev(`return Cloud._cache.settings.telegramChatId`);
+    await ev(`document.querySelector('#settingsBtn').click()`); await sleep(150);
+    await ev(`const f = document.querySelector('#settingsForm'); f.telegramChatId.value = ' 123456789 '; f.requestSubmit()`); await sleep(200);
+    const tg1 = await ev(`return Cloud._cache.settings.telegramChatId`);
+    check('telegram: невірний chat ID не зберігається, правильний — так', tg0 === '' && tg1 === '123456789', { tg0, tg1 });
+
     // ===== Шапка не зсувається між вкладками =====
     await viewport(1900, 1000);
     const pos = [];
@@ -242,13 +299,14 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
     // ===== Безпека: зловмисна «резервна копія» =====
     await open('#settle');
     await ev(`
-      const data = { trips: [{ id: '"><img src=x onerror=window.__xss=2>', startDate: '<img src=x onerror=window.__xss=3>', managed: true, ownerName: '<img src=x onerror=window.__xss=4>', driverName: '<img src=x onerror=window.__xss=5>' }],
+      const data = { trips: [{ id: '"><img src=x onerror=window.__xss=2>', startDate: '<img src=x onerror=window.__xss=3>', customer: '<img src=x onerror=window.__xss=9>', payStatus: 'waiting', payDue: '<img src=x onerror=window.__xss=10>', managed: true, ownerName: '<img src=x onerror=window.__xss=4>', driverName: '<img src=x onerror=window.__xss=5>' }],
         settings: { payouts: [{ id: 'z', kind: 'driver', party: '"><img src=x onerror=window.__xss=6>', name: '<b>x</b>', date: '<img src=x onerror=window.__xss=7>', amount: 'abc' }],
+                    carBlocks: [{ id: 'q', carId: 'c1', from: '2026-11-01', to: '2026-11-02', note: '<img src=x onerror=window.__xss=13>' }, { id: '"><img src=x onerror=window.__xss=14>', carId: 'c1', from: 'x', to: 'y' }],
                     expenses: [{ id: 'y', date: '2026-10-01', category: '<img src=x onerror=window.__xss=8>', amount: 5 }, { id: 'bad', date: 'zzz', amount: 9 }] } };
       const file = new File([JSON.stringify(data)], 'b.json', { type: 'application/json' }); const dt = new DataTransfer(); dt.items.add(file);
       const inp = document.querySelector('#importFile'); inp.files = dt.files; inp.dispatchEvent(new Event('change'));`);
     await sleep(600);
-    for (const h of ['', '#trips', '#settle', '#expenses']) { await go(h); for (const t of ['owners', 'partner', 'drivers']) { if (h === '#settle') { await ev(`document.querySelector('[data-settle-tab="${t}"]').click()`); await sleep(150); } } }
+    for (const h of ['', '#trips', '#settle', '#expenses']) { await go(h); for (const t of ['owners', 'partner', 'drivers', 'customers']) { if (h === '#settle') { await ev(`document.querySelector('[data-settle-tab="${t}"]').click()`); await sleep(150); } } }
     await ev(`let html = ''; const real = window.open; window.open = () => ({ document: { open() {}, write(h) { html += h; }, close() {} } }); document.querySelector('[data-action="report-pdf"]').click(); window.open = real;`);
     check('безпека: код з підсунутого файлу не виконався', await ev(`return window.__xss === undefined`), await ev(`return String(window.__xss)`));
     check('безпека: зіпсований запис витрат відкинуто', await ev(`return Cloud._cache.settings.expenses.length === 1`));
