@@ -1565,7 +1565,14 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
           row(`ЗП логіста ${fmtL.format(c.rates.logistRate)}% від фрахту`, uah2(c.logistPay), 'text-fuchsia-300') +
           sep +
           row('Усього витрат', uah2(c.totalExpenses), 'text-white'))}
-        ${block('pie-chart', 'Прибуток', (c.managed ? mgmtRows(c, row, sep) :
+        ${block('pie-chart', 'Прибуток',
+          // Звідки береться «Прибуток авто» — щоб було видно, що добові вже віднято
+          row('Фрахт', uah2(c.freight), 'text-white') +
+          row('Паливо (ціна для водія)', '− ' + uah2(c.fuelCostDriver), 'text-orange-300') +
+          row(`Добові ${fmtInt.format(c.rates.perDiem)} × ${c.days}`, '− ' + uah2(c.perDiem), 'text-violet-300') +
+          (c.other ? row('Інші витрати', '− ' + uah2(c.other)) : '') +
+          sep +
+          (c.managed ? mgmtRows(c, row, sep) :
           row('Прибуток авто (база ЗП)', uah2(c.carProfit), profitClass(c.carProfit)) +
           (c.fuelDiscount ? row('Знижка на паливо', (c.fuelDiscount > 0 ? '+ ' : '− ') + uah2(Math.abs(c.fuelDiscount)), profitClass(c.fuelDiscount)) : '') +
           row(`Податок ${fmtL.format(c.rates.taxRate)}%`, '− ' + uah2(c.tax), 'text-rose-300') +
@@ -2593,9 +2600,12 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     const I = {
       net: {
         title: 'Чистий прибуток бізнесу', icon: 'trending-up', total: s.netProfit,
-        what: 'Скільки заробив бізнес після палива, податку, СТО, ремонту і всіх зарплат — але до виплати компаньйону.',
+        what: 'Скільки заробив бізнес після палива, добових, податку, СТО, ремонту і всіх зарплат — але до виплати компаньйону.',
         rows: [
-          { label: 'Прибуток авто', hint: 'фрахт мінус паливо (ціна для водія), добові, інші', value: s.carProfit, kpi: 'carProfit' },
+          { label: 'Фрахт', value: s.freight, kpi: 'freight' },
+          { op: '−', label: 'Паливо за ціною для водія', hint: 'знижку додаємо нижче', value: s.fuelCostDriver, kpi: 'fuel' },
+          { op: '−', label: 'Добові', hint: 'за кожну добу в рейсі', value: s.perDiem, kpi: 'perDiem' },
+          { op: '−', label: 'Інші витрати', value: s.other, kpi: 'other' },
           { op: '+', label: 'Знижка на паливо', hint: 'різниця між ціною для водія і фактичною', value: s.fuelDiscount, kpi: 'fuel' },
           { op: '−', label: 'Податок', hint: 'від безналу', value: s.tax, kpi: 'tax' },
           { op: '−', label: 'СТО', hint: 'за кожну добу в рейсі', value: s.sto, kpi: 'sto' },
@@ -2739,7 +2749,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
           { label: 'Діб у рейсах', value: `${fmtInt.format(s.days)}`, kpi: 'days' },
           rateRow('×', 'Добові', 'perDiem', null, true),
         ],
-        notes: ['Добові зменшують прибуток авто, з якого рахується ЗП водія.'],
+        notes: ['Добові віднімаються з чистого прибутку бізнесу повністю.', 'Також вони зменшують прибуток авто, з якого рахується ЗП водія, — тому водій отримує трохи менше, і чистий прибуток падає менше, ніж сума добових.'],
         perTrip: (c) => c.perDiem,
       },
       other: {
