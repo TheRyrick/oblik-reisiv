@@ -246,6 +246,17 @@ test('нагадування: ТО за пробігом і документи �
   assert.equal(C.carOdometer({ id: 'a', odoManual: 200000 }, trips), 200000);
 });
 
+test('нагадування про ТО: з 2 500 км до ТО', () => {
+  const car = (id) => ({ id, plate: id, serviceEveryKm: 15000, serviceLastOdo: 100000 });
+  const R = C.carReminders([car('a'), car('b'), car('c')], [
+    { carId: 'a', odoEnd: 112400 }, // до ТО 2600 км — ще рано
+    { carId: 'b', odoEnd: 112500 }, // рівно 2500 км — нагадуємо
+    { carId: 'c', odoEnd: 112600 }, // 2400 км — нагадуємо
+  ], '2026-11-06');
+  assert.deepEqual(R.map((r) => r.carId).sort(), ['b', 'c']);
+  assert.equal(R.find((r) => r.carId === 'b').km, 2500);
+});
+
 test('захист: сміття в даних не ламає розрахунок', () => {
   const c = C.calcTrip({ startDate: '<img src=x>', cash: 'abc', bank: null, managed: 'yes', mgmtShare: 'xx' });
   assert.equal(c.freight, 0);

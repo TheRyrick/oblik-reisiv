@@ -355,6 +355,9 @@
     return Math.round((b - a) / 86400000);
   }
 
+  // За скільки км до ТО показувати нагадування
+  const SERVICE_WARN_KM = 2500;
+
   const DOCS = [
     { field: 'insuranceUntil', type: 'insurance', label: 'Страховка' },
     { field: 'inspectionUntil', type: 'inspection', label: 'Техогляд' },
@@ -363,7 +366,7 @@
 
   /**
    * Нагадування по авто: ТО за пробігом, страховка / техогляд / тахограф за датою.
-   * level: 'overdue' — прострочено, 'soon' — скоро (≤ 30 днів або ≤ max(1000 км, 10% інтервалу)).
+   * level: 'overdue' — прострочено, 'soon' — скоро (≤ 30 днів або ≤ SERVICE_WARN_KM км до ТО).
    */
   function carReminders(cars, trips, today) {
     const out = [];
@@ -374,7 +377,7 @@
         const odo = carOdometer(car, trips);
         const next = num(lastStr) + every;
         const left = round2(next - odo);
-        const warn = Math.max(1000, every * 0.1);
+        const warn = SERVICE_WARN_KM;
         if (left <= warn) out.push({ carId: car.id, plate: car.plate || '', type: 'service', label: 'ТО', level: left < 0 ? 'overdue' : 'soon', km: left, next, odo });
       }
       for (const d of DOCS) {
