@@ -951,8 +951,8 @@
     // Розрахунки з власниками — за весь час, фільтри періоду тут не діють
     $('#filtersBox').style.display = v === 'owners' ? 'none' : '';
     $('#periodLabel').classList.toggle('invisible', v === 'owners');
-    // Рейси — на всю ширину монітора
-    $$('.app-container').forEach((el) => el.classList.toggle('max-w-7xl', v !== 'trips'));
+    // Рейси — на всю ширину монітора (лише вміст; шапка лишається на місці, щоб кнопки не «їздили»)
+    $('main.app-container').classList.toggle('max-w-7xl', v !== 'trips');
     $$('[data-tab]').forEach((el) => el.classList.toggle('active', el.dataset.tab === v));
     $('#viewTitle').textContent = VIEW_TITLES[v];
     document.title = (v === 'trips' ? 'Рейси' : v === 'owners' ? 'Власники авто' : 'Облік рейсів') + ' — вантажні перевезення';

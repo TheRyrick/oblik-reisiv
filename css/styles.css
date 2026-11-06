@@ -23,7 +23,7 @@
   --r-lg: 1rem;
 }
 
-html { color-scheme: dark; }
+html { color-scheme: dark; scrollbar-gutter: stable; } /* місце під смугу прокрутки завжди — сторінка не «стрибає» між вкладками */
 body {
   -webkit-tap-highlight-color: transparent;
   background: var(--asphalt);
