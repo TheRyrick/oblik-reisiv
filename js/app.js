@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const { calcTrip, summarize, DEFAULTS, num, ownerKey, ownerLedger, partnerLedger, driverLedger, carStats, carOdometer, carReminders, expensesInPeriod, customerDebts, tripPayments, METHODS, monthForecast, carCalendar, DOC_FIELDS, backupStatus } = window.Calc;
+  const { calcTrip, summarize, DEFAULTS, num, ownerKey, ownerLedger, partnerLedger, driverLedger, carStats, carOdometer, carReminders, expensesInPeriod, customerDebts, tripPayments, METHODS, monthForecast, carCalendar, DOC_FIELDS, backupStatus, tripDate, tripMonth } = window.Calc;
 
   const Cloud = window.Cloud;
   const MONTHS = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
@@ -135,7 +135,7 @@
     const q = query.trim().toLowerCase();
     return trips
       .filter((t) => {
-        const [y, m] = (t.startDate || '').split('-');
+        const [y, m] = tripDate(t).split('-'); // рейс належить місяцю, в якому закінчився
         if (!ignorePeriod && filter.year !== 'all' && y !== filter.year) return false;
         if (!ignorePeriod && filter.month !== 'all' && m !== filter.month) return false;
         if (filter.driver !== 'all' && (t.driverId || '') !== filter.driver) return false;
@@ -149,7 +149,7 @@
   }
 
   function renderFilters() {
-    const years = Array.from(new Set(trips.map((t) => (t.startDate || '').slice(0, 4)).filter(Boolean))).sort().reverse();
+    const years = Array.from(new Set(trips.map((t) => tripDate(t).slice(0, 4)).filter(Boolean))).sort().reverse();
     if (filter.year !== 'all' && !years.includes(filter.year)) filter.year = 'all';
 
     $('#yearFilter').innerHTML =
@@ -274,8 +274,8 @@
   function monthTrend() {
     const groups = new Map();
     for (const t of filteredTrips(true)) {
-      const k = (t.startDate || '').slice(0, 7);
-      if (!/^\d{4}-\d{2}$/.test(k)) continue;
+      const k = tripMonth(t);
+      if (!k) continue;
       if (!groups.has(k)) groups.set(k, []);
       groups.get(k).push(t);
     }
@@ -1395,7 +1395,7 @@
           <div class="preview-row"><dt>Ваш прибуток після витрат бізнесу</dt><dd class="${profitClass(F.projProfit)}">≈ ${uah(F.projProfit)}</dd></div>
           ${F.prevProfit !== null ? `<div class="preview-row"><dt>Минулого місяця (${monthLabel(F.prevMonth, true).toLowerCase()})</dt><dd class="${profitClass(F.prevProfit)}">${uah(F.prevProfit)}</dd></div>` : ''}
         </dl>
-        <p class="mt-2 text-xs text-slate-500">Прогноз простий: заробили за ${F.day} ${plural(F.day, 'день', 'дні', 'днів')} → множимо на весь місяць. Рейси рахуються за датою початку.</p>
+        <p class="mt-2 text-xs text-slate-500">Прогноз простий: заробили за ${F.day} ${plural(F.day, 'день', 'дні', 'днів')} → множимо на весь місяць. Рейси рахуються за датою закінчення.</p>
       </div>`;
     box.innerHTML = debts + forecast;
     box.classList.toggle('lg:grid-cols-2', !!debts);

@@ -352,6 +352,17 @@ test('щоденне нагадування для Telegram', () => {
   assert.match(C.dailyDigest({}, '2026-11-06', { always: true }), /Усе гаразд/);
 });
 
+test('рейс належить місяцю, в якому закінчився', () => {
+  const t = trip({ startDate: '2026-10-28', endDate: '2026-11-03' });
+  assert.equal(C.tripMonth(t), '2026-11');
+  assert.equal(C.tripDate({ startDate: '2026-10-28' }), '2026-10-28', 'без дати кінця — за початком');
+  assert.equal(C.tripMonth({ startDate: '2026-10-28', endDate: 'сміття' }), '2026-10');
+  assert.equal(C.monthForecast([t], {}, [], '2026-11-05').count, 1, 'прогноз листопада бачить рейс');
+  assert.equal(C.monthForecast([t], {}, [], '2026-10-30').count, 0, 'у жовтні рейсу ще нема');
+  const L = C.ownerLedger([trip({ startDate: '2026-10-28', endDate: '2026-11-03', managed: true, ownerName: 'Іван' })], [], {});
+  assert.deepEqual(L[0].months.map((m) => m.month), ['2026-11']);
+});
+
 test('резервна копія: нагадування 1-го числа, якщо копії не було тиждень', () => {
   assert.equal(C.backupStatus({}, '2026-12-01').remind, true, 'ще не робили — нагадуємо');
   assert.equal(C.backupStatus({}, '2026-12-01').old, true);

@@ -141,6 +141,9 @@
 
   /** Місяць запису «РРРР-ММ» або '' (захист від сміття в датах). */
   const monthOf = (d) => { const m = String(d || '').slice(0, 7); return /^\d{4}-\d{2}$/.test(m) ? m : ''; };
+  /** Дата, за якою рейс потрапляє в період (місяць, рік, розрахунки): дата КІНЦЯ рейсу, а якщо її нема — початку. */
+  const tripDate = (t) => { const e = String((t && t.endDate) || ''); return /^\d{4}-\d{2}-\d{2}$/.test(e) ? e : String((t && t.startDate) || ''); };
+  const tripMonth = (t) => monthOf(tripDate(t));
 
   /**
    * Сумарні показники за набір рейсів.
@@ -170,7 +173,7 @@
       } else {
         s.ownCount++; s.ownNet += c.netProfit;
       }
-      const m = monthOf(t.startDate);
+      const m = tripMonth(t);
       if (m) months.add(m);
     }
     s.months = months.size;
@@ -242,7 +245,7 @@
       const amount = cfg.amountOf(c);
       o.trips.push({ t, c, amount });
       o.accrued += amount;
-      const m = monthOf(t.startDate);
+      const m = tripMonth(t);
       if (!o._m.has(m)) {
         const row = { month: m, count: 0, freight: 0, amount: 0 };
         o._m.set(m, row);
@@ -271,8 +274,8 @@
       o.payouts.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')) || (b.createdAt || 0) - (a.createdAt || 0));
       o.trips.sort((a, b) => String(b.t.startDate || '').localeCompare(String(a.t.startDate || '')));
       o.last = o.payouts[0] || null;
-      // Нараховано за рейси після останнього розрахунку (за датою початку рейсу)
-      const after = o.trips.filter(({ t }) => !o.last || String(t.startDate || '') > String(o.last.date || ''));
+      // Нараховано за рейси після останнього розрахунку (за датою кінця рейсу)
+      const after = o.trips.filter(({ t }) => !o.last || tripDate(t) > String(o.last.date || ''));
       o.sinceLast = round2(after.reduce((a, x) => a + x.amount, 0));
       o.sinceCount = after.length;
     }
@@ -482,7 +485,7 @@
     const [y, mm] = month.split('-');
     const dim = daysInMonth(month);
     const day = Math.min(dim, Math.max(1, Number(String(today).slice(8, 10)) || 1));
-    const list = (trips || []).filter((t) => monthOf(t.startDate) === month);
+    const list = (trips || []).filter((t) => tripMonth(t) === month);
     let freight = 0, net = 0, owner = 0;
     for (const t of list) {
       const c = calcTrip(t, rates);
@@ -504,7 +507,7 @@
     // Минулий місяць — для порівняння
     const pm = (() => { const d = new Date(Date.UTC(Number(y), Number(mm) - 2, 1)); return d.toISOString().slice(0, 7); })();
     let prevOwner = 0, prevCount = 0;
-    for (const t of trips || []) if (monthOf(t.startDate) === pm) { prevOwner += calcTrip(t, rates).ownerProfit; prevCount++; }
+    for (const t of trips || []) if (tripMonth(t) === pm) { prevOwner += calcTrip(t, rates).ownerProfit; prevCount++; }
     const prevEntries = expensesInPeriod(expenses, pm.slice(0, 4), pm.slice(5, 7)).reduce((a, e) => a + num(e.amount), 0);
     return {
       month, day, daysInMonth: dim, daysLeft: dim - day, count: list.length,
@@ -622,7 +625,7 @@
   }
 
   const api = {
-    DEFAULTS, num, daysBetween, calcTrip, summarize, ownerKey, monthOf,
+    DEFAULTS, num, daysBetween, calcTrip, summarize, ownerKey, monthOf, tripDate, tripMonth,
     ledger, ownerLedger, partnerLedger, driverLedger, payoutKind, payoutParty, driverKeyOf,
     carStats, carOdometer, carReminders, daysUntil, expensesInPeriod, DOCS, DOC_FIELDS,
     customerDebts, tripPayments, METHODS, monthForecast, daysInMonth, carCalendar, dailyDigest, backupStatus,
