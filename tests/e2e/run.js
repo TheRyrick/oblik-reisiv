@@ -310,8 +310,34 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
     const blk = await ev(`return { n: (Cloud._cache.settings.carBlocks || []).length, rep: document.querySelectorAll('#calGrid .cal-c.is-repair').length, list: document.querySelector('#calBlocks').innerText }`);
     check('календар: ремонт 3 дні позначено', blk.n === 1 && blk.rep === 3 && /10\.10\.2026/.test(blk.list), blk);
     await shot('10-calendar');
+
+    // ===== Резервна копія: кнопка в «Ставках», у файлі все, включно з календарем =====
+    await ev(`document.querySelector('#settingsBtn').click()`); await sleep(200);
+    const bi0 = await ev(`return document.querySelector('#backupInfo').innerText`);
+    const bk = await ev(`
+      let blob = null; const real = URL.createObjectURL; URL.createObjectURL = (b) => { blob = b; return 'blob:x'; };
+      document.querySelector('#settingsModal [data-action="export-json"]').click(); URL.createObjectURL = real;
+      const d = JSON.parse(await blob.text());
+      return { trips: d.trips.length, cars: d.cars.length, drivers: d.drivers.length, payouts: d.settings.payouts.length, expenses: d.settings.expenses.length,
+        blocks: d.settings.carBlocks.length, saved: Cloud._cache.settings.lastBackupAt, info: document.querySelector('#backupInfo').innerText, file: JSON.stringify(d) };`);
+    check('бекап: «ще не робили», потім «сьогодні» і дата збережена', /ще не робили/.test(bi0) && /сьогодні/.test(bk.info) && /^\d{4}-\d{2}-\d{2}$/.test(bk.saved || ''), { bi0, info: bk.info, saved: bk.saved });
+    check('бекап: у файлі рейси, водії, авто, розрахунки, витрати, календар', bk.trips > 0 && bk.cars === 2 && bk.drivers === 2 && bk.payouts > 0 && bk.expenses > 0 && bk.blocks === 1, { ...bk, file: undefined });
+    await ev(`document.querySelector('#backupInfo').scrollIntoView({ block: 'center' })`);
+    await shot('11-backup');
+    await ev(`document.querySelector('#settingsModal [data-close]').click()`); await sleep(150);
+
     await ev(`document.querySelector('#calGrid .cal-c.is-repair button').click()`); await sleep(250);
     check('календар: клік по ремонту прибирає позначку', await ev(`return Cloud._cache.settings.carBlocks.length === 0`));
+
+    // Відновлення з копії повертає ремонт у календар (раніше губився)
+    await ev(`document.querySelector('#settingsBtn').click()`); await sleep(150);
+    await ev(`
+      const file = new File([${JSON.stringify(bk.file)}], 'b.json', { type: 'application/json' }); const dt = new DataTransfer(); dt.items.add(file);
+      const inp = document.querySelector('#importFile'); inp.files = dt.files; inp.dispatchEvent(new Event('change'));`);
+    await sleep(600);
+    const rs = await ev(`return { trips: Cloud._cache.trips.length, blocks: (Cloud._cache.settings.carBlocks || []).length, rep: document.querySelectorAll('#calGrid .cal-c.is-repair').length, closed: document.querySelector('#settingsModal').classList.contains('hidden') }`);
+    check('бекап: відновлення повертає рейси і календар ремонтів, «Ставки» закрито', rs.trips === bk.trips && rs.blocks === 1 && rs.rep === 3 && rs.closed, rs);
+    await ev(`document.querySelector('#calGrid .cal-c.is-repair button').click()`); await sleep(250);
 
     // ===== Документи: ліцензія =====
     await ev(`document.querySelector('#refsBtn').click()`); await sleep(200);

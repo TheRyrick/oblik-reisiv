@@ -352,6 +352,21 @@ test('щоденне нагадування для Telegram', () => {
   assert.match(C.dailyDigest({}, '2026-11-06', { always: true }), /Усе гаразд/);
 });
 
+test('резервна копія: нагадування 1-го числа, якщо копії не було тиждень', () => {
+  assert.equal(C.backupStatus({}, '2026-12-01').remind, true, 'ще не робили — нагадуємо');
+  assert.equal(C.backupStatus({}, '2026-12-01').old, true);
+  assert.equal(C.backupStatus({ lastBackupAt: '2026-11-03' }, '2026-12-01').remind, true);
+  assert.equal(C.backupStatus({ lastBackupAt: '2026-11-03' }, '2026-12-01').days, 28);
+  assert.equal(C.backupStatus({ lastBackupAt: '2026-11-28' }, '2026-12-01').remind, false, 'свіжа копія — не турбуємо');
+  assert.equal(C.backupStatus({ lastBackupAt: '2026-10-01' }, '2026-11-15').remind, false, 'не 1-ше число — мовчимо');
+  assert.equal(C.backupStatus({ lastBackupAt: '2026-10-01' }, '2026-11-15').old, true, 'понад місяць — стара');
+  assert.equal(C.backupStatus({ lastBackupAt: 'сміття' }, '2026-12-01').last, '', 'зіпсована дата ігнорується');
+  const txt = C.dailyDigest({ settings: { lastBackupAt: '2026-11-03' } }, '2026-12-01');
+  assert.match(txt, /Час зробити резервну копію/);
+  assert.match(txt, /Остання копія: 03\.11\.2026 \(28 дн\. тому\)/);
+  assert.equal(C.dailyDigest({ settings: { lastBackupAt: '2026-11-03' } }, '2026-12-02'), '', '2-го числа — тиша');
+});
+
 test('борги по рядках оплат: лише не отримані, без замовника — за рейсом, «чекаємо» понад 14 днів', () => {
   const pays = [
     { id: 'a', amount: 7000, method: 'card', received: true },

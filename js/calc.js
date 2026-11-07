@@ -552,6 +552,27 @@
     return { month, daysInMonth: dim, rows };
   }
 
+  // Резервна копія: нагадуємо 1-го числа кожного місяця, якщо за останні BACKUP_FRESH_DAYS днів копію не робили.
+  const BACKUP_FRESH_DAYS = 7;
+  const BACKUP_OLD_DAYS = 31;
+
+  /**
+   * Стан резервної копії. lastBackupAt — дата «РРРР-ММ-ДД» останнього скачування (з settings).
+   * days — скільки днів тому (null, якщо ще не робили); old — понад місяць або ніколи;
+   * remind — чи нагадати сьогодні в Telegram.
+   */
+  function backupStatus(settings, today) {
+    const last = settings && isDate(settings.lastBackupAt) ? settings.lastBackupAt : '';
+    const ago = last ? daysUntil(last, today) : null;
+    const days = ago === null ? null : Math.max(0, -ago);
+    const firstOfMonth = isDate(today) && today.slice(8, 10) === '01';
+    return {
+      last, days,
+      old: days === null || days > BACKUP_OLD_DAYS,
+      remind: firstOfMonth && (days === null || days >= BACKUP_FRESH_DAYS),
+    };
+  }
+
   /**
    * Текст щоденного нагадування (для Telegram). Повертає '' якщо нагадувати нічого.
    * Без розмітки — простий текст.
@@ -588,6 +609,13 @@
       }
       if (late.length > 30) lines.push(`… і ще ${late.length - 30}`);
     }
+    const bk = backupStatus(settings, today);
+    if (bk.remind) {
+      if (lines.length) lines.push('');
+      lines.push('💾 Час зробити резервну копію даних!');
+      lines.push(bk.last ? `Остання копія: ${dmy(bk.last)} (${bk.days} дн. тому).` : 'Ви ще жодного разу не робили копію.');
+      lines.push('Сайт → «Ставки» → «Скачати копію». Файл збережіть на комп або в хмару.');
+    }
     if (!lines.length && !(opts && opts.always)) return '';
     const head = 'Облік рейсів — нагадування на ' + dmy(today);
     return [head, '', ...(lines.length ? lines : ['✅ Усе гаразд: прострочених документів, ТО і боргів немає.'])].join('\n');
@@ -597,7 +625,7 @@
     DEFAULTS, num, daysBetween, calcTrip, summarize, ownerKey, monthOf,
     ledger, ownerLedger, partnerLedger, driverLedger, payoutKind, payoutParty, driverKeyOf,
     carStats, carOdometer, carReminders, daysUntil, expensesInPeriod, DOCS, DOC_FIELDS,
-    customerDebts, tripPayments, METHODS, monthForecast, daysInMonth, carCalendar, dailyDigest,
+    customerDebts, tripPayments, METHODS, monthForecast, daysInMonth, carCalendar, dailyDigest, backupStatus,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.Calc = api;

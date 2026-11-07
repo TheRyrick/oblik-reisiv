@@ -556,8 +556,16 @@
           <div class="preview-sep !my-4"></div>
           <div class="flex items-center gap-2 text-sm font-semibold text-white"><i data-lucide="send" class="h-4 w-4 text-sky-300"></i>Нагадування в Telegram</div>
           <label class="field"><span>Ваш Telegram chat ID</span><input name="telegramChatId" type="text" inputmode="numeric" class="input" maxlength="20" placeholder="Напр. 123456789" autocomplete="off" /></label>
-          <p class="text-xs text-slate-500">Щоранку бот напише, якщо скоро ТО, закінчується страховка / техогляд / ліцензія чи прострочена оплата від замовника. Як дізнатись свій ID: напишіть боту <b class="text-slate-300">@userinfobot</b> — він відповість числом. Потім напишіть будь-що <b class="text-slate-300">своєму</b> боту (інакше він не зможе вам писати).</p>
+          <p class="text-xs text-slate-500">Щоранку бот напише, якщо скоро ТО, закінчується страховка / техогляд / ліцензія чи прострочена оплата від замовника, а 1-го числа — нагадає про резервну копію. Як дізнатись свій ID: напишіть боту <b class="text-slate-300">@userinfobot</b> — він відповість числом. Потім напишіть будь-що <b class="text-slate-300">своєму</b> боту (інакше він не зможе вам писати).</p>
           <button type="button" id="tgTest" class="btn-ghost w-full justify-center"><i data-lucide="send" class="h-4 w-4"></i><span>Зберегти і надіслати тест</span></button>
+          <div class="preview-sep !my-4"></div>
+          <div class="flex items-center gap-2 text-sm font-semibold text-white"><i data-lucide="save" class="h-4 w-4 text-emerald-300"></i>Резервна копія</div>
+          <p id="backupInfo" class="text-sm text-slate-400"></p>
+          <p class="text-xs text-slate-500">Один файл з усіма даними: рейси, водії, авто, ставки, розрахунки, витрати, календар. Зберігайте його на комп або в хмару (Google Диск тощо). Якщо вказано chat ID — 1-го числа кожного місяця бот нагадає зробити нову копію.</p>
+          <div class="grid gap-2 sm:grid-cols-2">
+            <button type="button" data-action="export-json" class="btn-ghost w-full justify-center"><i data-lucide="download" class="h-4 w-4"></i><span>Скачати копію</span></button>
+            <button type="button" data-action="import-json" class="btn-ghost w-full justify-center"><i data-lucide="upload" class="h-4 w-4"></i><span>Відновити з копії</span></button>
+          </div>
         </div>
         <div class="mt-6 flex justify-end gap-2">
           <button type="button" class="btn-ghost" data-close>Скасувати</button>

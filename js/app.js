@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const { calcTrip, summarize, DEFAULTS, num, ownerKey, ownerLedger, partnerLedger, driverLedger, carStats, carOdometer, carReminders, expensesInPeriod, customerDebts, tripPayments, METHODS, monthForecast, carCalendar, DOC_FIELDS } = window.Calc;
+  const { calcTrip, summarize, DEFAULTS, num, ownerKey, ownerLedger, partnerLedger, driverLedger, carStats, carOdometer, carReminders, expensesInPeriod, customerDebts, tripPayments, METHODS, monthForecast, carCalendar, DOC_FIELDS, backupStatus } = window.Calc;
 
   const Cloud = window.Cloud;
   const MONTHS = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
@@ -2353,6 +2353,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     settingsForm.elements.mgmtShare.value = settings.mgmtShare;
     settingsForm.elements.monthlyExpenses.value = settings.monthlyExpenses || '';
     settingsForm.elements.telegramChatId.value = settings.telegramChatId || '';
+    renderBackupInfo();
     openModal($('#settingsModal'));
   });
   settingsForm.addEventListener('submit', (e) => {
@@ -2970,9 +2971,32 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
   }
 
   function exportJSON() {
+    // saveSettings() кладе в settings актуальні розрахунки, витрати і календар — щоб копія була повною,
+    // і запамʼятовує дату копії (за нею бот вирішує, чи нагадувати 1-го числа).
+    settings.lastBackupAt = today();
+    saveSettings();
     const payload = { app: 'truck-ledger', version: 2, exportedAt: new Date().toISOString(), settings, drivers, cars, trips };
-    download(`reisy_backup_${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(payload, null, 2), 'application/json');
+    download(`reisy_backup_${today()}.json`, JSON.stringify(payload, null, 2), 'application/json');
+    renderBackupInfo();
     toast('Резервну копію збережено');
+  }
+
+  function renderBackupInfo() {
+    const el = $('#backupInfo');
+    if (!el) return;
+    const s = backupStatus(settings, today());
+    el.className = 'text-sm ' + (s.old ? 'text-amber-300' : 'text-emerald-300');
+    el.textContent = s.last
+      ? `Остання копія: ${fmtDate(s.last)} (${s.days === 0 ? 'сьогодні' : s.days + ' ' + plural(s.days, 'день', 'дні', 'днів') + ' тому'})${s.old ? ' — час зробити нову' : ''}`
+      : 'Копію ще не робили з цього акаунта — радимо скачати зараз.';
+  }
+
+  /** Налаштування з файлу копії: лише звичайний обʼєкт і без службових ключів (__proto__ тощо). */
+  function safeSettings(src) {
+    const out = {};
+    if (!src || typeof src !== 'object' || Array.isArray(src)) return out;
+    for (const k of Object.keys(src)) if (!['__proto__', 'constructor', 'prototype'].includes(k)) out[k] = src[k];
+    return out;
   }
 
   $('#importFile').addEventListener('change', async (e) => {
@@ -2987,16 +3011,24 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
       if (!confirm(`Знайдено рейсів: ${clean.length}. Замінити поточні дані (${trips.length})?`)) return;
       trips = clean;
       if (data.settings) {
+        const src = safeSettings(data.settings);
         const keepPayouts = payouts;
         const keepExpenses = expenses;
-        settings = Object.assign({}, DEFAULTS, data.settings);
-        // Записи розрахунків з власниками: з копії, а якщо копія старіша і їх там немає — лишаємо поточні
-        payouts = Array.isArray(data.settings.payouts) ? data.settings.payouts.filter(validPayout) : keepPayouts;
-        expenses = Array.isArray(data.settings.expenses) ? data.settings.expenses.filter(validExpense) : keepExpenses;
+        const keepBlocks = blocks;
+        const keepBackupAt = settings.lastBackupAt;
+        settings = Object.assign({}, DEFAULTS, src);
+        // Дата останньої копії — поточна (відновлення не означає, що нову копію зроблено)
+        if (keepBackupAt) settings.lastBackupAt = keepBackupAt; else delete settings.lastBackupAt;
+        // Розрахунки, витрати, календар: з копії, а якщо копія старіша і їх там немає — лишаємо поточні
+        payouts = Array.isArray(src.payouts) ? src.payouts.filter(validPayout) : keepPayouts;
+        expenses = Array.isArray(src.expenses) ? src.expenses.filter(validExpense) : keepExpenses;
+        blocks = Array.isArray(src.carBlocks) ? src.carBlocks.filter(validBlock) : keepBlocks;
       }
       if (Array.isArray(data.drivers)) drivers = data.drivers.filter((d) => d && d.id && (d.lastName || d.firstName));
       if (Array.isArray(data.cars)) cars = data.cars.filter((c) => c && c.id && c.plate);
       saveTrips(); saveSettings(); saveRefs(); renderAll();
+      // У відкритій формі «Ставки» — старі значення; закриваємо, щоб «Зберегти» не перезаписало відновлені
+      closeModal($('#settingsModal'));
       toast('Дані відновлено');
     } catch (err) {
       toast('Не вдалося прочитати файл', 'err');
