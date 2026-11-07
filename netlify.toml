@@ -21,3 +21,9 @@
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
+
+# Відео-огляд: файл великий і змінюється рідко — браузер тримає його в кеші тиждень
+[[headers]]
+  for = "/media/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"

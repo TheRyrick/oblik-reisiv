@@ -27,7 +27,7 @@ function findChrome() {
 }
 
 // ---------- Локальний сервер: index.html з тестовим входом ----------
-const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.jpg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.jpg': 'image/jpeg', '.png': 'image/png', '.svg': 'image/svg+xml', '.mp4': 'video/mp4' };
 const server = http.createServer((req, res) => {
   let url = decodeURIComponent(req.url.split('?')[0]);
   if (url === '/' || url === '/index.html') {
@@ -386,6 +386,18 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
       document.querySelector('[data-help-role="owner"]').click();
       return out;`);
     check('довідка: відкривається, у кожного розділу є питання', help.open && help.faq.owner >= 5 && help.faq.partner >= 3 && help.faq.driver >= 5, help);
+    // Відео-огляд: лише у власника, не вантажиться наперед, файли на місці
+    const vid = await ev(`
+      const v = document.querySelector('#helpBody video');
+      const out = { owner: !!v, preload: v && v.getAttribute('preload'), src: v && v.getAttribute('src'), poster: v && v.getAttribute('poster') };
+      document.querySelector('[data-help-role="driver"]').click(); out.driver = !!document.querySelector('#helpBody video');
+      document.querySelector('[data-help-role="owner"]').click();
+      const head = async (u) => (await fetch(u, { method: 'HEAD' })).status;
+      out.files = [await head(out.src), await head(out.poster)];
+      out.wide = Math.round(document.querySelector('#helpBody video').getBoundingClientRect().width);
+      return out;`);
+    check('довідка: відео-огляд у власника (не вантажиться наперед), у водія — немає', vid.owner && !vid.driver && vid.preload === 'none' && vid.files.every((s) => s === 200) && vid.wide > 200, vid);
+    await shot('12-help-video');
     await shot('12-help');
     await ev(`document.querySelector('#helpBody [data-start-tour="owner"]').click()`); await sleep(400);
     check('довідка: кнопка «Почати» закриває довідку і запускає тур', await ev(`return document.querySelector('#helpModal').classList.contains('hidden') && Guide.active && Guide.active.key === 'owner'`));

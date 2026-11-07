@@ -23,7 +23,7 @@
     'history': 'clock-counter-clockwise', 'chevron-down': 'caret-down', 'file-text': 'file-pdf',
     'building-2': 'buildings', 'chevron-left': 'caret-left', 'clock': 'clock', 'target': 'target',
     'calendar-x': 'calendar-x', 'bell': 'bell-ringing',
-    'help-circle': 'question', 'play': 'play',
+    'help-circle': 'question', 'play': 'play', 'clapperboard': 'film-slate',
   };
   // Іконки, які краще виглядають «повними» (не duotone)
   const BOLD = new Set(['plus', 'x', 'check', 'chevron-right', 'chevron-left', 'arrow-right']);

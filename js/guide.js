@@ -294,6 +294,11 @@
 
   // ---------- Модалка довідки ----------
   let helpRole = 'owner';
+  // Відео-огляди (файли в media/, вантажаться лише після натискання «Play»)
+  const VIDEOS = {
+    owner: { src: 'media/owner-guide.mp4', poster: 'media/owner-guide.jpg', title: 'Відео-огляд для власника', length: '2 хв 40 с' },
+  };
+  const stopVideo = () => { const v = $('#helpModal video'); if (v && !v.paused) v.pause(); };
   const ROLES = [
     ['owner', 'Власник', 'key-round', 'Повний огляд сайту: рейси, цифри, розрахунки, налаштування.'],
     ['partner', 'Компаньйон', 'handshake', 'Де дивитись частку компаньйона і виплати.'],
@@ -347,7 +352,12 @@
       b.setAttribute('aria-selected', String(on));
     });
     const role = ROLES.find((r) => r[0] === helpRole);
-    $('#helpBody').innerHTML = `
+    const video = VIDEOS[helpRole];
+    $('#helpBody').innerHTML = `${video ? `
+      <figure class="help-video">
+        <video controls playsinline preload="none" poster="${video.poster}" src="${video.src}" aria-label="${video.title}"></video>
+        <figcaption><i data-lucide="clapperboard" class="h-4 w-4"></i><span>${video.title}</span><span class="text-slate-500">· ${video.length}</span></figcaption>
+      </figure>` : ''}
       <div class="help-tour">
         <div class="min-w-0">
           <div class="font-semibold text-white">Інтерактивний тур</div>
@@ -374,6 +384,7 @@
   function closeHelp() {
     const m = $('#helpModal');
     if (!m || m.classList.contains('hidden')) return;
+    stopVideo();
     m.classList.add('hidden');
     if (!document.querySelector('.modal:not(.hidden)')) document.body.style.overflow = '';
   }
