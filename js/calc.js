@@ -624,8 +624,270 @@
     return [head, '', ...(lines.length ? lines : ['✅ Усе гаразд: прострочених документів, ТО і боргів немає.'])].join('\n');
   }
 
+  // ---------- Аналітика: замовники, міста, найкращі рейси, «чи брати вантаж» ----------
+  const APOS_RE = /[’ʼ`´‘']/g;
+  // Міста з дефісом у назві — їх не розрізаємо на два
+  const HYPHEN_CITIES = ["івано-франківськ", "кам'янець-подільський", "білгород-дністровський", "володимир-волинський", "новоград-волинський", "переяслав-хмельницький", "кам'янка-бузька", "франкфурт-на-майні", "ростов-на-дону"];
+  const cityKey = (s) => String(s || '').toLocaleLowerCase('uk').replace(APOS_RE, "'").replace(/\s+/g, ' ').trim();
+  const stripPrefix = (s) => String(s).replace(/^\s*(?:смт|м|г|с)\.\s*/i, '').replace(/^\s*(?:село|місто|смт)\s+/i, '');
+  const capFirst =(s) => s.charAt(0).toLocaleUpperCase('uk') + s.slice(1);
+
+  /**
+   * Міста з рядка маршруту: «Дніпро → Одеса - Київ, Львів» → [Дніпро, Одеса, Київ, Львів].
+   * Роздільники: стрілки, тире, кома, «/», дефіс (але «Івано-Франківськ» лишається цілим).
+   * Повтори в одному рейсі (туди-назад) — один раз. Повертає [{ key, name }].
+   */
+  function splitRoute(route) {
+    const src = String(route || '').replace(/\([^)]*\)|\[[^\]]*\]/g, ' ');
+    const parts = src.split(/\s*(?:→|⇒|➔|➝|⟶|->|=>|—|–|>|\/|\\|,|;|\||\+)\s*|\s+-\s+/);
+    const out = [];
+    const seen = new Set();
+    for (const part of parts) {
+      const merged = [];
+      for (const tk of part.split('-')) {
+        if (merged.length) {
+          const prev = merged[merged.length - 1];
+          const jk = cityKey(stripPrefix(prev + '-' + tk));
+          // склеюємо назад: відомі міста з дефісом і службові слова («Ростов-на-Дону»)
+          const glue = /^\s*\p{Ll}{1,3}\s*$/u.test(tk) || !tk.trim() || !prev.trim() || HYPHEN_CITIES.some((c) => c === jk || c.startsWith(jk + '-'));
+          if (glue) { merged[merged.length - 1] = prev + '-' + tk; continue; }
+        }
+        merged.push(tk);
+      }
+      for (let m of merged) {
+        m = stripPrefix(m)
+          .replace(/^[\s.\-:]+|[\s.\-:!?]+$/g, '').replace(/\s+/g, ' ');
+        if (m.length < 2 || !/\p{L}/u.test(m)) continue;
+        const key = cityKey(m);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ key, name: capFirst(m.replace(APOS_RE, '’')) });
+      }
+    }
+    return out;
+  }
+
+  /** Ключ замовника: без лапок, ТОВ/ФОП/ПП і різниці великих/малих — «ТОВ "Ромашка"» = «ромашка». */
+  function customerKey(name) {
+    return cityKey(String(name || '').replace(/[«»"„“”]/g, ' '))
+      .replace(/^(?:(?:тов|тзов|фоп|пп|прат|пат|ат|llc|ооо|sp\.? ?z ?o\.? ?o\.?)\.?\s+)+/i, '')
+      .replace(/[\s,]+(?:тов|тзов|llc|ооо|sp\.? ?z ?o\.? ?o\.?)$/i, '')
+      .replace(/\s+/g, ' ').trim();
+  }
+
+  /** Найчастіший варіант написання (для показу). */
+  const topName = (m) => Array.from(m).sort((a, b) => b[1] - a[1])[0][0];
+  const perDayOf = (net, days) => (days > 0 ? net / days : 0);
+
+  /**
+   * Аналітика за набором рейсів.
+   *  customers — по замовниках: рейси, фрахт, ₴/км, прибуток на км і на добу, скільки днів чекали оплату, скільки винні зараз;
+   *  cities — по містах з маршрутів (рейс з кількома містами рахується в кожному з них);
+   *  ranked — рейси за прибутком на добу (найкращі першими).
+   * Прибуток — чистий прибуток бізнесу з рейсу (для авто в управлінні — ваша частка).
+   */
+  function analytics(trips, rates) {
+    const cust = new Map();
+    const cities = new Map();
+    const ranked = [];
+    const all = { count: 0, km: 0, days: 0, freight: 0, netProfit: 0 };
+    let noCustomer = 0;
+    let noRoute = 0;
+    const bump = (a, c) => { a.count++; a.km += c.km; a.days += c.days; a.freight += c.freight; a.netProfit += c.netProfit; };
+    for (const t of trips || []) {
+      const c = calcTrip(t, rates);
+      bump(all, c);
+      if (c.days > 0 && c.freight > 0) ranked.push({ t, c, perDay: round2(perDayOf(c.netProfit, c.days)), perKm: c.profitPerKm });
+      // Замовники
+      const name = cleanName(t.customer);
+      const ck = customerKey(name);
+      if (ck) {
+        if (!cust.has(ck)) cust.set(ck, { key: ck, names: new Map(), count: 0, km: 0, days: 0, freight: 0, netProfit: 0, paidSum: 0, paidDaysSum: 0, waiting: 0, lastDate: '' });
+        const a = cust.get(ck);
+        a.names.set(name, (a.names.get(name) || 0) + 1);
+        bump(a, c);
+        const d = tripDate(t);
+        if (d > a.lastDate) a.lastDate = d;
+        // Скільки чекали оплату: від кінця рейсу до дати отримання (лише суми, які колись були «чекаємо»)
+        const end = isDate(t.endDate) ? t.endDate : isDate(t.startDate) ? t.startDate : '';
+        const pays = tripPayments(t);
+        if (pays.length) {
+          for (const p of pays) {
+            const amt = num(p.amount);
+            if (p.received !== true) { a.waiting += amt; continue; }
+            const wait = p.waited && end && isDate(p.receivedDate) ? Math.max(0, daysUntil(p.receivedDate, end)) : 0;
+            a.paidSum += amt; a.paidDaysSum += amt * wait;
+          }
+        } else if (t.payStatus === 'waiting') a.waiting += c.received;
+        else if (c.received > 0) a.paidSum += c.received;
+      } else noCustomer++;
+      // Міста
+      const list = splitRoute(t.route);
+      if (!list.length) noRoute++;
+      for (const ct of list) {
+        if (!cities.has(ct.key)) cities.set(ct.key, { key: ct.key, names: new Map(), count: 0, km: 0, days: 0, freight: 0, netProfit: 0 });
+        const a = cities.get(ct.key);
+        a.names.set(ct.name, (a.names.get(ct.name) || 0) + 1);
+        bump(a, c);
+      }
+    }
+    const finish = (a) => {
+      for (const k of ['km', 'days', 'freight', 'netProfit']) a[k] = round2(a[k]);
+      a.pricePerKm = a.km > 0 ? round2(a.freight / a.km) : 0;
+      a.profitPerKm = a.km > 0 ? round2(a.netProfit / a.km) : 0;
+      a.profitPerDay = round2(perDayOf(a.netProfit, a.days));
+      return a;
+    };
+    finish(all);
+    const customers = Array.from(cust.values()).map((a) => {
+      finish(a);
+      a.name = topName(a.names); delete a.names;
+      a.payDays = a.paidSum > 0 ? round2(a.paidDaysSum / a.paidSum) : null;
+      a.waiting = round2(a.waiting);
+      delete a.paidSum; delete a.paidDaysSum;
+      return a;
+    }).sort((x, y) => y.netProfit - x.netProfit);
+    const cityList = Array.from(cities.values()).map((a) => { finish(a); a.name = topName(a.names); delete a.names; return a; })
+      .sort((x, y) => y.count - x.count || y.profitPerKm - x.profitPerKm);
+    ranked.sort((x, y) => y.perDay - x.perDay);
+    return { all, customers, cities: cityList, ranked, noCustomer, noRoute };
+  }
+
+  const addDays = (iso, n) => new Date(Date.parse(iso + 'T00:00:00Z') + n * 86400000).toISOString().slice(0, 10);
+
+  /**
+   * Звички бізнесу з історії рейсів — база для калькулятора «Чи брати вантаж?».
+   * Беремо рейси за останні 120 днів (якщо їх менше 3 — усі). Для авто — його власну витрату палива, якщо є.
+   */
+  function loadBaseline(trips, rates, expenses, today, carId) {
+    const r = Object.assign({}, DEFAULTS, rates || {});
+    const all = (trips || []).filter((t) => isDate(tripDate(t)));
+    const from = isDate(today) ? addDays(today, -120) : '';
+    let recent = all.filter((t) => tripDate(t) >= from && tripDate(t) <= today);
+    if (recent.length < 3) recent = all;
+    let km = 0, days = 0, kmD = 0, daysK = 0, repair = 0, other = 0, net = 0, liters = 0, litersKm = 0;
+    const months = new Set();
+    for (const t of recent) {
+      const c = calcTrip(t, rates);
+      days += c.days; net += c.ownerProfit;
+      if (c.km > 0) { km += c.km; repair += c.repair; other += c.other; }
+      if (c.km > 0 && c.days > 0) { kmD += c.km; daysK += c.days; }
+      if (c.km > 0 && c.fuelLiters > 0) { liters += c.fuelLiters; litersKm += c.km; }
+      months.add(tripMonth(t));
+    }
+    // Витрата палива: авто — з його рейсів (за весь час), інакше — загальна
+    let fuelPer100 = litersKm > 0 ? (liters / litersKm) * 100 : 0;
+    let carCount = 0;
+    if (carId) {
+      let l = 0, k = 0;
+      for (const t of all) if (t.carId === carId) { const c = calcTrip(t, rates); carCount++; if (c.km > 0 && c.fuelLiters > 0) { l += c.fuelLiters; k += c.km; } }
+      if (k > 0) fuelPer100 = (l / k) * 100;
+    }
+    // Ціна палива — з останнього рейсу, де вона вказана
+    const last = all.filter((t) => num(t.fuelPrice) > 0).sort((a, b) => (tripDate(b) > tripDate(a) ? 1 : tripDate(b) < tripDate(a) ? -1 : 0))[0];
+    const fuelPrice = last ? num(last.fuelPrice) : 0;
+    const fuelPriceActual = last ? calcTrip(last, rates).fuelPriceActual : 0;
+    // Постійні витрати бізнесу на одну добу рейсу
+    let fixed = 0;
+    for (const m of months) if (m) fixed += num(r.monthlyExpenses) + expensesInPeriod(expenses, m.slice(0, 4), m.slice(5, 7)).reduce((a, e) => a + num(e.amount), 0);
+    const fixedPerDay = days > 0 ? fixed / days : 0;
+    return {
+      count: recent.length, carCount,
+      fuelPer100: round2(fuelPer100), fuelPrice: round2(fuelPrice), fuelPriceActual: round2(fuelPriceActual),
+      repairPerKm: km > 0 ? round2(repair / km) : 0,
+      otherPerKm: km > 0 ? round2(other / km) : 0,
+      kmPerDay: daysK > 0 ? Math.round(kmD / daysK) : 0,
+      fixedPerDay: round2(fixedPerDay),
+      // Скільки вам (після компаньйона і постійних витрат) у середньому лишається за добу рейсу
+      profitPerDay: days > 0 ? round2((net - fixed) / days) : 0,
+    };
+  }
+
+  /**
+   * «Чи брати вантаж?» — прикидка рейсу за ставкою, кілометрами і звичками бізнесу (loadBaseline).
+   * q: { orders: [{ price, pay, volume, kg }], km, emptyKm, days, dispatch, fuelPer100, fuelPrice, fuelPriceActual, managed, mgmtShare, car: { volume, capacityKg } }
+   *    (або одне замовлення по-старому: { price, pay })
+   * Логіст збирає в рейс кілька замовлень (3–6), щоб машина їхала повна: ставки складаються,
+   * обʼєм і вага — порівнюються з кузовом і вантажопідйомністю авто.
+   * Порожні км (до завантаження) теж палять паливо і зношують авто, але грошей не приносять.
+   */
+  function quoteLoad(q, base, rates) {
+    const b = base || {};
+    const orders = (Array.isArray(q.orders) ? q.orders : [{ price: q.price, pay: q.pay }])
+      .map((o) => ({ price: Math.max(0, num(o && o.price)), pay: METHODS.includes(o && o.pay) ? o.pay : 'bank', volume: Math.max(0, num(o && o.volume)), kg: Math.max(0, num(o && o.kg)) }));
+    // Частка кожного способу оплати — щоб «мінімальна ставка» зберігала ту саму суміш готівки й безналу
+    const byPay = { cash: 0, bank: 0, card: 0 };
+    for (const o of orders) byPay[o.pay] += o.price;
+    const sumPrice = byPay.cash + byPay.bank + byPay.card;
+    const mix = sumPrice > 0 ? { cash: byPay.cash / sumPrice, bank: byPay.bank / sumPrice, card: byPay.card / sumPrice } : { cash: 0, bank: 1, card: 0 };
+    // Завантаження авто
+    const car = q.car || {};
+    const capVol = Math.max(0, num(car.volume));
+    const capKg = Math.max(0, num(car.capacityKg));
+    const volume = round2(orders.reduce((a, o) => a + o.volume, 0));
+    const kg = round2(orders.reduce((a, o) => a + o.kg, 0));
+    const load = {
+      volume, kg, capVol, capKg,
+      volPct: capVol > 0 ? round2((volume / capVol) * 100) : null,
+      kgPct: capKg > 0 ? round2((kg / capKg) * 100) : null,
+      freeVol: capVol > 0 ? round2(capVol - volume) : null,
+      freeKg: capKg > 0 ? round2(capKg - kg) : null,
+    };
+    load.overVol = capVol > 0 && volume > capVol + 1e-9;
+    load.overKg = capKg > 0 && kg > capKg + 1e-9;
+    load.over = load.overVol || load.overKg;
+    const km = Math.max(0, num(q.km));
+    const emptyKm = Math.max(0, num(q.emptyKm));
+    const totalKm = km + emptyKm;
+    const days = num(q.days) > 0 ? Math.min(60, Math.ceil(num(q.days))) : b.kmPerDay > 0 ? Math.max(1, Math.ceil(totalKm / b.kmPerDay)) : 1;
+    const fuelPer100 = num(q.fuelPer100) > 0 ? num(q.fuelPer100) : num(b.fuelPer100);
+    const fuelPrice = num(q.fuelPrice) > 0 ? num(q.fuelPrice) : num(b.fuelPrice);
+    const fuelPriceActual = num(q.fuelPriceActual) > 0 ? num(q.fuelPriceActual) : num(b.fuelPriceActual) || fuelPrice;
+    const liters = (totalKm * fuelPer100) / 100;
+    const fixed = num(b.fixedPerDay) * days;
+    const tripFor = (price) => ({
+      startDate: '2000-01-01', endDate: addDays('2000-01-01', days), odoStart: 0, odoEnd: totalKm,
+      fuelLiters: liters, fuelPrice, fuelPriceActual, cash: price * mix.cash, bank: price * mix.bank, card: price * mix.card,
+      dispatch: Math.max(0, num(q.dispatch)), repairExpenses: num(b.repairPerKm) * totalKm, otherExpenses: num(b.otherPerKm) * totalKm,
+      managed: !!q.managed, mgmtShare: q.mgmtShare,
+    });
+    // Рахуємо від того, що лишається ВАМ: після компаньйона і постійних витрат бізнесу
+    const netAt = (price) => calcTrip(tripFor(price), rates).ownerProfit - fixed;
+    // Найменша ставка, з якою прибуток ≥ goal (прибуток росте разом зі ставкою — шукаємо поділом навпіл)
+    const priceFor = (goal) => {
+      let lo = 0, hi = Math.max(10000, sumPrice * 2);
+      for (let i = 0; i < 40 && netAt(hi) < goal; i++) hi *= 2;
+      if (netAt(hi) < goal) return null;
+      for (let i = 0; i < 60; i++) { const mid = (lo + hi) / 2; if (netAt(mid) >= goal) hi = mid; else lo = mid; }
+      return Math.ceil(hi / 100) * 100;
+    };
+    const price = sumPrice;
+    const c = calcTrip(tripFor(price), rates);
+    const net = round2(c.netProfit - fixed);
+    const owner = round2(c.ownerProfit - fixed);
+    const perDay = round2(owner / days);
+    const avg = num(b.profitPerDay);
+    const breakEven = priceFor(0.01);
+    const target = avg > 0 ? priceFor(avg * days) : null;
+    let verdict = 'good';
+    if (owner <= 0) verdict = 'loss';
+    else if (avg > 0 ? perDay < avg * 0.7 : owner < price * 0.05) verdict = 'weak';
+    return {
+      km, emptyKm, totalKm, days, liters: round2(liters), fuelPer100, fuelPrice, fuelPriceActual,
+      price, orders: orders.length, load,
+      calc: c, fixed: round2(fixed), net, perDay,
+      ownerProfit: owner,
+      ratePerKm: km > 0 ? round2(price / km) : 0,
+      ratePerKmTotal: totalKm > 0 ? round2(price / totalKm) : 0,
+      breakEven, target, avgPerDay: avg,
+      vsAvg: avg > 0 ? round2(((perDay - avg) / Math.abs(avg)) * 100) : null,
+      verdict,
+    };
+  }
+
   const api = {
     DEFAULTS, num, daysBetween, calcTrip, summarize, ownerKey, monthOf, tripDate, tripMonth,
+    splitRoute, customerKey, analytics, loadBaseline, quoteLoad,
     ledger, ownerLedger, partnerLedger, driverLedger, payoutKind, payoutParty, driverKeyOf,
     carStats, carOdometer, carReminders, daysUntil, expensesInPeriod, DOCS, DOC_FIELDS,
     customerDebts, tripPayments, METHODS, monthForecast, daysInMonth, carCalendar, dailyDigest, backupStatus,

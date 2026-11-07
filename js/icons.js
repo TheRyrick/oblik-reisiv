@@ -24,6 +24,7 @@
     'building-2': 'buildings', 'chevron-left': 'caret-left', 'clock': 'clock', 'target': 'target',
     'calendar-x': 'calendar-x', 'bell': 'bell-ringing',
     'help-circle': 'question', 'play': 'play', 'clapperboard': 'film-slate',
+    'trophy': 'trophy', 'map-pin': 'map-pin', 'trending-down': 'trend-down',
   };
   // Іконки, які краще виглядають «повними» (не duotone)
   const BOLD = new Set(['plus', 'x', 'check', 'chevron-right', 'chevron-left', 'arrow-right']);

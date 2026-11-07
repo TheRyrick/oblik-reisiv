@@ -41,7 +41,7 @@
             <path class="brand-lane" d="M12 21V3" stroke-dasharray="3.2 3.2" />
           </svg>
         </span>
-        <span class="brand-text md:hidden xl:block">
+        <span class="brand-text md:hidden">
           <span class="brand-name">Облік рейсів</span>
           <span class="brand-road" aria-hidden="true"><i data-lucide="truck" class="brand-truck"></i></span>
         </span>
@@ -53,21 +53,23 @@
         <a href="#trips" class="tab" data-tab="trips"><i data-lucide="list" class="h-4 w-4"></i><span>Рейси</span></a>
         <a href="#settle" class="tab" data-tab="settle"><i data-lucide="scale" class="h-4 w-4"></i><span>Розрахунки</span></a>
         <a href="#expenses" class="tab" data-tab="expenses"><i data-lucide="receipt" class="h-4 w-4"></i><span>Витрати</span></a>
+        <a href="#analytics" class="tab" data-tab="analytics"><i data-lucide="trophy" class="h-4 w-4"></i><span>Аналітика</span></a>
       </nav>
 
       <div class="ml-auto flex items-center gap-2">
         <span id="syncStatus" class="grid h-8 w-8 place-items-center" title="Синхронізація"></span>
         <button id="helpBtn" type="button" class="btn-ghost" title="Довідка та навчання" aria-label="Довідка та навчання">
-          <i data-lucide="help-circle" class="h-4 w-4"></i><span class="hidden lg:inline">Довідка</span>
+          <i data-lucide="help-circle" class="h-4 w-4"></i>
         </button>
         <div class="relative" id="menuWrap">
           <button id="menuBtn" class="btn-ghost" title="Дані">
-            <i data-lucide="database" class="h-4 w-4"></i><span class="hidden md:inline">Дані</span>
+            <i data-lucide="database" class="h-4 w-4"></i><span class="hidden xl:inline">Дані</span>
           </button>
           <div id="menu" class="dropdown hidden">
-            <button data-action="refs" class="dropdown-item md:hidden"><i data-lucide="users" class="h-4 w-4"></i>Водії та авто</button>
-            <button data-action="settings" class="dropdown-item md:hidden"><i data-lucide="settings-2" class="h-4 w-4"></i>Ставки</button>
-            <div class="my-1 h-px bg-white/5 md:hidden"></div>
+            <a href="#analytics" class="dropdown-item md:hidden" data-menu-link><i data-lucide="trophy" class="h-4 w-4"></i>Аналітика · чи брати вантаж</a>
+            <button data-action="refs" class="dropdown-item lg:hidden"><i data-lucide="users" class="h-4 w-4"></i>Водії та авто</button>
+            <button data-action="settings" class="dropdown-item lg:hidden"><i data-lucide="settings-2" class="h-4 w-4"></i>Ставки</button>
+            <div class="my-1 h-px bg-white/5 lg:hidden"></div>
             <button data-action="report-pdf" class="dropdown-item"><i data-lucide="file-text" class="h-4 w-4"></i>Звіт за період (PDF)</button>
             <button data-action="export-xlsx" class="dropdown-item"><i data-lucide="file-spreadsheet" class="h-4 w-4"></i>Рейси в Excel (.xlsx)</button>
             <button data-action="export-csv" class="dropdown-item"><i data-lucide="file-spreadsheet" class="h-4 w-4"></i>Рейси в CSV</button>
@@ -85,13 +87,13 @@
         </div>
         <div class="hidden items-center gap-2 md:flex">
           <button id="refsBtn" class="btn-ghost" title="Водії та авто">
-            <i data-lucide="users" class="h-4 w-4"></i><span class="hidden lg:inline">Водії та авто</span>
+            <i data-lucide="users" class="h-4 w-4"></i><span class="hidden xl:inline">Водії та авто</span>
           </button>
           <button id="settingsBtn" class="btn-ghost" title="Налаштування ставок">
-            <i data-lucide="settings-2" class="h-4 w-4"></i><span class="hidden lg:inline">Ставки</span>
+            <i data-lucide="settings-2" class="h-4 w-4"></i><span class="hidden xl:inline">Ставки</span>
           </button>
-          <button id="addTripBtn" class="btn-primary">
-            <i data-lucide="plus" class="h-4 w-4"></i><span>Новий рейс</span>
+          <button id="addTripBtn" class="btn-primary" title="Новий рейс" aria-label="Новий рейс">
+            <i data-lucide="plus" class="h-4 w-4"></i><span class="hidden lg:inline">Новий рейс</span>
           </button>
         </div>
       </div>
@@ -362,6 +364,45 @@
       </div>
     </section>
 
+    <!-- ===== Вкладка: Аналітика (калькулятор «Чи брати вантаж?» + замовники, міста, найкращі рейси) ===== -->
+    <section id="analyticsView" class="hidden space-y-6">
+      <div class="grid gap-4 lg:grid-cols-[minmax(0,420px)_1fr]">
+        <form id="quoteForm" class="card space-y-3" novalidate autocomplete="off">
+          <div>
+            <h2 class="card-title flex items-center gap-2"><i data-lucide="calculator" class="h-5 w-5 text-amber-300"></i>Чи брати вантаж?</h2>
+            <p class="mt-1 text-xs text-slate-400">Виберіть машину і додайте всі замовлення, які логіст збирає в цей рейс. Сайт перевірить, чи все влізе, і порахує за вашими ж рейсами: паливо, ЗП, податок, ремонт і постійні витрати.</p>
+          </div>
+          <label class="field"><span>На яку машину</span><select name="carId" class="input"></select></label>
+          <p id="quoteCarInfo" class="-mt-1 text-xs text-slate-400"></p>
+          <div>
+            <div class="mb-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+              <span class="whitespace-nowrap text-sm font-semibold text-white">Замовлення в рейсі</span>
+              <span id="quoteOrdersSum" class="num text-xs text-slate-400"></span>
+            </div>
+            <div id="quoteOrders" class="space-y-2"></div>
+            <button type="button" id="quoteAddOrder" class="btn-ghost mt-2 w-full justify-center !min-h-0 !py-2 text-sm"><i data-lucide="plus" class="h-4 w-4"></i><span>Ще замовлення</span></button>
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <label class="field col-span-2"><span>Км з вантажем (весь маршрут)</span><input name="km" type="number" inputmode="numeric" step="any" min="0" class="input" placeholder="Напр. 480" /></label>
+            <label class="field"><span>Порожніх км</span><input name="emptyKm" type="number" inputmode="numeric" step="any" min="0" class="input" placeholder="до завантаження" /></label>
+            <label class="field"><span>Діб у рейсі</span><input name="days" type="number" inputmode="numeric" step="1" min="0" max="60" class="input" placeholder="сам порахує" /></label>
+          </div>
+          <details class="quote-more">
+            <summary><i data-lucide="chevron-down" class="h-4 w-4"></i>Точніше (паливо, диспетчерські)</summary>
+            <div class="mt-3 grid grid-cols-2 gap-3">
+              <label class="field"><span>Диспетчерські, грн</span><input name="dispatch" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" /></label>
+              <label class="field"><span>Витрата, л/100 км</span><input name="fuelPer100" type="number" inputmode="decimal" step="any" min="0" class="input" /></label>
+              <label class="field"><span>Паливо для водія, ₴/л</span><input name="fuelPrice" type="number" inputmode="decimal" step="any" min="0" class="input" /></label>
+              <label class="field"><span>Паливо фактично, ₴/л</span><input name="fuelPriceActual" type="number" inputmode="decimal" step="any" min="0" class="input" /></label>
+            </div>
+            <p class="mt-2 text-xs text-slate-500">Порожні поля — беремо з ваших останніх рейсів.</p>
+          </details>
+        </form>
+        <div id="quoteResult" class="card quote-result" aria-live="polite"></div>
+      </div>
+      <div id="analyticsBody" class="space-y-6"></div>
+    </section>
+
     <footer class="pb-6 text-center text-xs text-slate-500">
       Дані зберігаються в хмарі й доступні з будь-якого пристрою. Резервна копія — у меню «Дані».
       <span class="mt-1 block text-slate-500">Фото на фоні: <a class="underline hover:text-slate-400" href="https://commons.wikimedia.org/wiki/File:Renault_Master_IAA_Transportation_2026_(DSC6714).jpg" target="_blank" rel="noopener noreferrer">MarcelX42</a>, <a class="underline hover:text-slate-400" href="https://creativecommons.org/licenses/by-sa/4.0/deed.uk" target="_blank" rel="noopener noreferrer">CC BY-SA 4.0</a>, розмито</span>
@@ -615,6 +656,11 @@
             <form id="carForm" class="grid gap-2" novalidate>
               <input name="plate" type="text" class="input uppercase" placeholder="Держ. номер, напр. AA1234BB" maxlength="20" />
               <input name="brand" type="text" class="input" placeholder="Марка, напр. MAN TGX" maxlength="60" />
+              <p id="carBrandHint" class="-mt-1 text-xs text-slate-400" aria-live="polite"></p>
+              <div class="grid grid-cols-2 gap-2">
+                <label class="field"><span>Кузов, м³ <b class="text-amber-300">*</b></span><input name="volume" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="Напр. 86" /></label>
+                <label class="field"><span>Вантажопідйомність, кг <b class="text-amber-300">*</b></span><input name="capacityKg" type="number" inputmode="numeric" step="any" min="0" class="input" placeholder="Напр. 20000" /></label>
+              </div>
               <label class="mgmt-toggle">
                 <input name="managed" type="checkbox" />
                 <span><b>Під управлінням</b> — авто не моє, ділю прибуток з власником</span>

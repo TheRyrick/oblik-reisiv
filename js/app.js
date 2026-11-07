@@ -71,11 +71,31 @@
   function tripHeading(t, cls = '') {
     const { plate, brand } = tripPlate(t);
     if (!plate) return `<div class="trip-dates ${cls}">${fmtDate(t.startDate)} — ${fmtDate(t.endDate)}</div>`;
-    return `<div class="plate-line ${cls}">${plateHtml(plate)}${brand ? `<span class="plate-brand">${escapeHtml(brand)}</span>` : ''}</div>`;
+    return `<div class="plate-line ${cls}">${plateHtml(plate, brand || undefined)}${brand ? `<span class="plate-brand">${escapeHtml(brand)}</span>` : ''}</div>`;
   }
-  /** Держ. номер у вигляді українського номерного знака (синя смужка UA зліва). */
-  function plateHtml(plate) {
-    return `<span class="plate"><span class="plate-ua" aria-hidden="true">UA</span><span class="plate-num">${escapeHtml(plate)}</span></span>`;
+  /** Значок марки авто за текстом «Марка, модель» (js/brands.js). Невідома марка — порожньо. */
+  function brandLogo(brand, cls = '') {
+    const b = window.Brands && window.Brands.detect(brand);
+    if (!b) return '';
+    const hex = /^[0-9A-F]{6}$/i.test(b.c) ? b.c : '2a313a';
+    // Обʼємна емблема: фірмовий колір із градієнтом (світліший зверху, темніший знизу) + білий логотип.
+    // На світлих кольорах (жовтий Renault, Opel) логотип темний — інакше не видно.
+    const rgb = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+    const mix = (to, k) => '#' + rgb.map((v) => Math.round(v + (to - v) * k).toString(16).padStart(2, '0')).join('');
+    const light = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) > 170;
+    const style = `--bc:#${hex};--bc-hi:${mix(255, 0.35)};--bc-lo:${mix(0, 0.45)};--ink:${light ? '#1b2027' : '#fff'}`;
+    const title = escapeHtml(b.t);
+    return b.d
+      ? `<span class="brand-logo ${cls}" title="${title}" style="${style}"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="${b.d}"/></svg><span class="sr-only">${title}</span></span>`
+      : `<span class="brand-logo is-mono ${cls}" title="${title}" style="${style}"><span aria-hidden="true">${escapeHtml(b.m)}</span><span class="sr-only">${title}</span></span>`;
+  }
+  /** Марка авто за номером (з довідника «Водії та авто»). */
+  const brandByPlate = (plate) => { const k = String(plate || '').toUpperCase().replace(/\s+/g, ''); const c = k && cars.find((x) => String(x.plate || '').toUpperCase().replace(/\s+/g, '') === k); return c ? c.brand : ''; };
+  /** Держ. номер у вигляді українського номерного знака (синя смужка UA зліва) + значок марки, якщо її впізнали. */
+  function plateHtml(plate, brand) {
+    const p = `<span class="plate"><span class="plate-ua" aria-hidden="true">UA</span><span class="plate-num">${escapeHtml(plate)}</span></span>`;
+    const logo = brandLogo(brand === undefined ? brandByPlate(plate) : brand);
+    return logo ? `<span class="plate-wrap">${logo}${p}</span>` : p;
   }
   const tripDates = (t) => `${fmtDate(t.startDate)} — ${fmtDate(t.endDate)}`;
 
@@ -746,6 +766,7 @@
     renderSettle();
     renderExpenses();
     renderCarStats(list);
+    renderAnalytics(list);
     renderReminders();
     renderDashExtra();
     renderCalendar();
@@ -1029,10 +1050,11 @@
     if (h === '#trips') return 'trips';
     if (h === '#settle' || h === '#owners') return 'settle';
     if (h === '#expenses') return 'expenses';
+    if (h === '#analytics') return 'analytics';
     return 'dashboard';
   }
-  const VIEW_TITLES = { dashboard: 'Фінансова панель', trips: 'Рейси', settle: 'Розрахунки', expenses: 'Витрати бізнесу' };
-  const DOC_TITLES = { dashboard: 'Облік рейсів', trips: 'Рейси', settle: 'Розрахунки', expenses: 'Витрати бізнесу' };
+  const VIEW_TITLES = { dashboard: 'Фінансова панель', trips: 'Рейси', settle: 'Розрахунки', expenses: 'Витрати бізнесу', analytics: 'Аналітика' };
+  const DOC_TITLES = { dashboard: 'Облік рейсів', trips: 'Рейси', settle: 'Розрахунки', expenses: 'Витрати бізнесу', analytics: 'Аналітика' };
 
   function applyView() {
     const v = currentView();
@@ -1041,6 +1063,7 @@
     $('#tripsView').classList.toggle('hidden', v !== 'trips');
     $('#settleView').classList.toggle('hidden', v !== 'settle');
     $('#expensesView').classList.toggle('hidden', v !== 'expenses');
+    $('#analyticsView').classList.toggle('hidden', v !== 'analytics');
     // Розрахунки — за весь час, фільтри тут не діють. Витратам потрібен лише період.
     $('#filtersBox').style.display = v === 'settle' ? 'none' : '';
     $('#filtersBox').classList.toggle('only-period', v === 'expenses');
@@ -1208,7 +1231,7 @@
           const w = (Math.abs(a.netProfit) / maxAbs) * 100;
           const tag = a.key === best && a.netProfit > 0 ? '<span class="ml-1.5 badge text-profit">найкраще</span>' : a.key === worst && stats.length > 2 ? '<span class="ml-1.5 badge">найслабше</span>' : '';
           return `<tr>
-            <td class="py-2.5 pr-3"><div class="flex items-center gap-1.5">${n.plate ? plateHtml(n.plate) : escapeHtml(n.brand || '—')}${a.managed ? '<i data-lucide="key-round" class="h-3.5 w-3.5 text-slate-400" title="під управлінням"></i>' : ''}${tag}</div>${n.brand && n.plate ? `<div class="mt-0.5 text-xs text-slate-500">${escapeHtml(n.brand)}</div>` : ''}</td>
+            <td class="py-2.5 pr-3"><div class="flex items-center gap-1.5">${n.plate ? plateHtml(n.plate, n.brand || undefined) : brandLogo(n.brand) + escapeHtml(n.brand || '—')}${a.managed ? '<i data-lucide="key-round" class="h-3.5 w-3.5 text-slate-400" title="під управлінням"></i>' : ''}${tag}</div>${n.brand && n.plate ? `<div class="mt-0.5 text-xs text-slate-500">${escapeHtml(n.brand)}</div>` : ''}</td>
             <td class="num py-2.5 pr-3 text-right">${a.count}</td>
             <td class="num py-2.5 pr-3 text-right">${fmtInt.format(a.km)}</td>
             <td class="num py-2.5 pr-3 text-right text-white">${uah(a.freight)}</td>
@@ -1226,6 +1249,315 @@
           </tr>`;
         }).join('')}</tbody>
       </table>`;
+  }
+
+  // ---------- Аналітика: «Чи брати вантаж?», замовники, міста, найкращі й найслабші рейси ----------
+  const quoteForm = $('#quoteForm');
+  const perDayTxt = (v) => `${uah(v)} на добу`;
+  const pctDiff = (v) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${fmtInt.format(Math.abs(v))}%`;
+
+  function quoteCarOptions() {
+    const sel = quoteForm.elements.carId;
+    const cur = sel.value;
+    const list = cars.slice().sort(sortByLabel(carLabel));
+    sel.innerHTML = (list.length ? '<option value="">— виберіть машину —</option>' : '<option value="">Авто ще не додано</option>')
+      + list.map((c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(carLabel(c))}${num(c.volume) > 0 ? ` · ${fmtL.format(num(c.volume))} м³` : ''}${c.managed ? ' (в управлінні)' : ''}</option>`).join('');
+    sel.value = list.some((c) => c.id === cur) ? cur : list.length === 1 ? list[0].id : '';
+  }
+
+  // Замовлення, які логіст збирає в один рейс (щоб машина їхала повна)
+  const QUOTE_MAX_ORDERS = 10;
+  const newOrder = () => ({ price: '', pay: 'bank', volume: '', kg: '' });
+  let quoteOrders = [newOrder()];
+
+  function renderQuoteOrders() {
+    const one = quoteOrders.length === 1;
+    $('#quoteOrders').innerHTML = quoteOrders.map((o, i) => `
+      <div class="q-order" data-i="${i}">
+        <div class="q-order-head">
+          <span>${one ? 'Замовлення' : `Замовлення ${i + 1}`}</span>
+          ${one ? '' : `<button type="button" class="icon-btn" data-q-del="${i}" title="Прибрати замовлення" aria-label="Прибрати замовлення ${i + 1}"><i data-lucide="x" class="h-4 w-4"></i></button>`}
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <label class="field"><span>Ставка, грн</span><input data-q="price" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="Напр. 15000" value="${escapeHtml(o.price)}" /></label>
+          <label class="field"><span>Як платять</span><select data-q="pay" class="input">
+            ${[['bank', 'Безнал'], ['cash', 'Готівка'], ['card', 'На карту']].map(([v, l]) => `<option value="${v}" ${o.pay === v ? 'selected' : ''}>${l}</option>`).join('')}
+          </select></label>
+          <label class="field"><span>Обʼєм, м³</span><input data-q="volume" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="Напр. 20" value="${escapeHtml(o.volume)}" /></label>
+          <label class="field"><span>Вага, кг</span><input data-q="kg" type="number" inputmode="numeric" step="any" min="0" class="input" placeholder="Напр. 5000" value="${escapeHtml(o.kg)}" /></label>
+        </div>
+      </div>`).join('');
+    $('#quoteAddOrder').classList.toggle('hidden', quoteOrders.length >= QUOTE_MAX_ORDERS);
+    refreshIcons();
+  }
+
+  /** Смужка завантаження: обʼєм чи вага відносно місткості авто. */
+  function loadBar(label, have, cap, pct, unit, fmt) {
+    if (!(cap > 0)) return '';
+    const over = have > cap + 1e-9;
+    const color = over ? 'var(--loss)' : pct >= 80 ? 'var(--profit)' : 'var(--signal)';
+    return `<div class="q-load-row">
+        <div class="flex items-baseline justify-between gap-2 text-sm"><span class="text-slate-300">${label}</span>
+        <span class="num ${over ? 'font-semibold text-loss' : 'text-white'}">${fmt(have)} з ${fmt(cap)} ${unit} · ${fmtInt.format(pct)}%</span></div>
+        <div class="bar mt-1"><i style="width:${Math.min(100, pct)}%;background:${color}"></i></div>
+      </div>`;
+  }
+
+  function renderQuote() {
+    const f = quoteForm.elements;
+    const car = cars.find((c) => c.id === f.carId.value);
+    const B = Calc.loadBaseline(trips, settings, expenses, today(), car ? car.id : '');
+    f.fuelPer100.placeholder = B.fuelPer100 ? fmtL.format(B.fuelPer100) : 'напр. 30';
+    f.fuelPrice.placeholder = B.fuelPrice ? fmtDec.format(B.fuelPrice) : 'напр. 55';
+    f.fuelPriceActual.placeholder = B.fuelPriceActual ? fmtDec.format(B.fuelPriceActual) : 'як для водія';
+    const hasSize = car && num(car.volume) > 0 && num(car.capacityKg) > 0;
+    $('#quoteCarInfo').innerHTML = !car ? ''
+      : hasSize ? `Кузов <b class="text-slate-200">${fmtL.format(num(car.volume))} м³</b> · вантажопідйомність <b class="text-slate-200">${fmtInt.format(num(car.capacityKg))} кг</b>`
+        : '<span class="text-amber-300">У картці цього авто не вказано м³ і вантажопідйомність.</span> <button type="button" class="font-medium text-amber-200 underline underline-offset-2" data-action="refs">Заповнити</button>';
+    // Підсумок по замовленнях
+    const sum = quoteOrders.reduce((a, o) => ({ price: a.price + Math.max(0, num(o.price)), volume: a.volume + Math.max(0, num(o.volume)), kg: a.kg + Math.max(0, num(o.kg)) }), { price: 0, volume: 0, kg: 0 });
+    const filled = quoteOrders.filter((o) => num(o.price) > 0).length;
+    $('#quoteOrdersSum').textContent = quoteOrders.length > 1 || sum.volume || sum.kg
+      ? [filled > 1 ? `${filled} ${plural(filled, 'замовлення', 'замовлення', 'замовлень')}` : '', sum.price ? uah(sum.price) : '', sum.volume ? fmtL.format(sum.volume) + ' м³' : '', sum.kg ? fmtInt.format(sum.kg) + ' кг' : ''].filter(Boolean).join(' · ')
+      : '';
+    const km = num(f.km.value);
+    const box = $('#quoteResult');
+    const needCar = cars.length > 0 && !car;
+    if (needCar || !(sum.price > 0) || !(km > 0)) {
+      const ask = needCar ? 'Спершу виберіть <b class="text-white">машину</b>, потім додайте замовлення: <b class="text-white">ставку</b>, <b class="text-white">м³</b> і <b class="text-white">кг</b>, і впишіть <b class="text-white">кілометри</b>.'
+        : 'Впишіть <b class="text-white">ставку</b> і <b class="text-white">кілометри</b> — тут одразу буде видно, чи вигідний рейс, чи все влізе в машину і скільки просити, щоб не працювати в нуль.';
+      box.innerHTML = `
+        <div class="quote-empty">
+          <i data-lucide="calculator" class="h-8 w-8 text-slate-500"></i>
+          <p class="mt-2 text-sm text-slate-300">${ask}</p>
+          ${B.count ? `<p class="mt-2 text-xs text-slate-500">Рахую за вашими ${B.count} ${plural(B.count, 'рейсом', 'рейсами', 'рейсами')}: ${B.fuelPer100 ? fmtL.format(B.fuelPer100) + ' л/100 км, ' : ''}${B.kmPerDay ? '~' + fmtInt.format(B.kmPerDay) + ' км на добу, ' : ''}вам у середньому лишається ${perDayTxt(B.profitPerDay)}.</p>` : '<p class="mt-2 text-xs text-slate-500">Рейсів ще немає — порахую лише за ставками. Витрату й ціну палива впишіть у «Точніше».</p>'}
+        </div>`;
+      f.days.placeholder = 'сам порахує';
+      refreshIcons();
+      return;
+    }
+    const Q = Calc.quoteLoad({
+      orders: quoteOrders, km, emptyKm: f.emptyKm.value, days: f.days.value, dispatch: f.dispatch.value,
+      fuelPer100: f.fuelPer100.value, fuelPrice: f.fuelPrice.value, fuelPriceActual: f.fuelPriceActual.value,
+      managed: !!(car && car.managed), mgmtShare: car && car.managed ? (car.mgmtShare === undefined || car.mgmtShare === '' ? settings.mgmtShare : car.mgmtShare) : '',
+      car: car ? { volume: car.volume, capacityKg: car.capacityKg } : null,
+    }, B, settings);
+    const c = Q.calc;
+    const L = Q.load;
+    const autoDays = !(num(f.days.value) > 0);
+    f.days.placeholder = autoDays ? `≈ ${Q.days}` : 'сам порахує';
+    // Завантаження машини
+    let loadMsg = '';
+    if (L.over) {
+      const parts = [L.overVol ? `на ${fmtL.format(-L.freeVol)} м³` : '', L.overKg ? `на ${fmtInt.format(-L.freeKg)} кг` : ''].filter(Boolean).join(' і ');
+      loadMsg = `<p class="mt-2 text-sm font-semibold text-loss">Не влізе: перевищено ${parts}. Приберіть замовлення або беріть більшу машину.</p>`;
+    } else if (L.volPct !== null && L.kgPct !== null && (L.volume > 0 || L.kg > 0)) {
+      loadMsg = Math.max(L.volPct, L.kgPct) >= 85
+        ? '<p class="mt-2 text-sm text-profit">Машина завантажена добре.</p>'
+        : `<p class="mt-2 text-sm text-slate-300">Ще влізе ~<b class="text-white">${fmtL.format(L.freeVol)} м³</b> і <b class="text-white">${fmtInt.format(L.freeKg)} кг</b> — можна дошукати замовлення.</p>`;
+    }
+    const loadBox = car && hasSize ? `
+      <div class="q-load ${L.over ? 'is-over' : ''}">
+        <div class="mb-2 flex items-center gap-2 text-sm font-semibold text-white"><i data-lucide="truck" class="h-4 w-4 text-sky-300"></i>Завантаження ${plateHtml(car.plate || '')}</div>
+        ${loadBar('Обʼєм', L.volume, L.capVol, L.volPct, 'м³', (v) => fmtL.format(v))}
+        ${loadBar('Вага', L.kg, L.capKg, L.kgPct, 'кг', (v) => fmtInt.format(v))}
+        ${L.volume || L.kg ? loadMsg : '<p class="mt-2 text-xs text-slate-500">Впишіть м³ і кг у замовленнях — сайт перевірить, чи все влізе.</p>'}
+      </div>` : '';
+    const V = {
+      good: ['is-good', 'check-circle-2', `Вигідно: вам +${uah(Q.ownerProfit)}`],
+      weak: ['is-weak', 'alert-circle', `На межі: вам +${uah(Q.ownerProfit)}`],
+      loss: ['is-loss', 'x', Q.ownerProfit < 0 ? `Збиток: вам −${uah(-Q.ownerProfit)}` : 'В нуль — не варто'],
+    }[Q.verdict];
+    let why;
+    if (Q.verdict === 'loss') why = Q.breakEven ? `Щоб вийти хоча б у нуль, просіть ${Q.orders > 1 ? 'за всі замовлення разом ' : ''}від <b>${uah(Q.breakEven)}</b>.` : 'Навіть велика ставка не перекриває витрат — перевірте кілометри й паливо.';
+    else if (Q.vsAvg === null) why = `Машина ${Q.days} ${plural(Q.days, 'добу', 'доби', 'діб')} заробить ${perDayTxt(Q.perDay)}.`;
+    else if (Q.verdict === 'weak') why = `Це лише ${perDayTxt(Q.perDay)} — на ${fmtInt.format(Math.abs(Q.vsAvg))}% менше за ваш звичайний рейс (${perDayTxt(Q.avgPerDay)}).`;
+    else why = Q.vsAvg >= 0 ? `${perDayTxt(Q.perDay)} — на ${fmtInt.format(Q.vsAvg)}% краще за ваш звичайний рейс.` : `${perDayTxt(Q.perDay)} — трохи нижче за звичайний рейс (${perDayTxt(Q.avgPerDay)}), але в плюс.`;
+    const line = (label, v, sub = '') => v ? `<div class="preview-row"><dt>${label}${sub ? ` <span class="text-slate-500">${sub}</span>` : ''}</dt><dd>− ${uah(v)}</dd></div>` : '';
+    const partner = num(settings.partnerRate === undefined ? DEFAULTS.partnerRate : settings.partnerRate) > 0;
+    const many = Q.orders > 1;
+    box.innerHTML = `
+      ${loadBox}
+      <div class="quote-verdict ${V[0]} ${loadBox ? 'mt-4' : ''}">
+        <i data-lucide="${V[1]}" class="h-6 w-6 shrink-0"></i>
+        <div class="min-w-0"><div class="text-lg font-bold">${V[2]}</div><p class="mt-0.5 text-sm">${why}</p></div>
+      </div>
+      <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        <div><div class="text-xs text-slate-400">Вам лишиться</div><div class="num text-lg font-bold ${profitClass(Q.ownerProfit)}">${uah(Q.ownerProfit)}</div>${partner ? '<div class="text-xs text-slate-500">після компаньйона</div>' : ''}</div>
+        ${partner ? `<div><div class="text-xs text-slate-400">${Q.calc.managed ? 'Ваша частка' : 'Прибуток бізнесу'}</div><div class="num text-lg font-bold ${profitClass(Q.net)}">${uah(Q.net)}</div><div class="text-xs text-slate-500">до компаньйона</div></div>` : ''}
+        <div><div class="text-xs text-slate-400">Вам на добу</div><div class="num text-lg font-bold ${profitClass(Q.perDay)}">${uah(Q.perDay)}</div><div class="text-xs text-slate-500">${Q.days} ${plural(Q.days, 'доба', 'доби', 'діб')}${autoDays ? ' (прикидка)' : ''}</div></div>
+        <div><div class="text-xs text-slate-400">Ставка за км</div><div class="num text-lg font-bold text-white">${fmtDec.format(Q.ratePerKm)} ₴</div>${Q.emptyKm ? `<div class="text-xs text-slate-500">з порожніми ${fmtDec.format(Q.ratePerKmTotal)} ₴</div>` : ''}</div>
+      </div>
+      <div class="quote-prices mt-4">
+        ${Q.breakEven ? `<div><span>Мінімум, щоб не в мінус${many ? ' (усі разом)' : ''}</span><b class="num">${uah(Q.breakEven)}</b></div>` : ''}
+        ${Q.target ? `<div><span>Щоб як ваш звичайний рейс${many ? ' (усі разом)' : ''}</span><b class="num">${uah(Q.target)}</b></div>` : ''}
+      </div>
+      <details class="quote-more mt-3">
+        <summary><i data-lucide="chevron-down" class="h-4 w-4"></i>З чого складається</summary>
+        <dl class="mt-2 space-y-1 text-sm">
+          <div class="preview-row"><dt>${many ? `Ставки ${Q.orders} замовлень` : 'Ставка'}${c.dispatch ? ' без диспетчерських' : ''}</dt><dd class="text-white">${uah(c.freight)}</dd></div>
+          ${line('Паливо', c.fuelCost, `${fmtInt.format(Q.liters)} л на ${fmtInt.format(Q.totalKm)} км`)}
+          ${line('ЗП водія', c.driverPay)}
+          ${line('Добові', c.perDiem)}
+          ${line('ЗП логіста', c.logistPay)}
+          ${line('Податок', c.tax, c.tax ? 'з безналу' : '')}
+          ${line('СТО', c.sto)}
+          ${line('Ремонт і дрібниці', c.repair + c.other, 'як у ваших рейсах')}
+          ${Q.calc.managed && c.carOwnerShare > 0 ? line('Власнику авто', c.carOwnerShare) : ''}
+          ${line('Постійні витрати бізнесу', Q.fixed, `≈ ${uah(B.fixedPerDay)} на добу`)}
+          <div class="preview-sep"></div>
+          ${partner ? `<div class="preview-row"><dt>Прибуток бізнесу</dt><dd class="${profitClass(Q.net)}">${uah(Q.net)}</dd></div>${line('Компаньйону', c.partnerShare)}` : ''}
+          <div class="preview-row"><dt><b>Вам лишається</b></dt><dd class="font-bold ${profitClass(Q.ownerProfit)}">${uah(Q.ownerProfit)}</dd></div>
+        </dl>
+        ${!Q.fuelPer100 || !Q.fuelPrice ? '<p class="mt-2 text-xs text-amber-300">Немає даних про паливо — впишіть витрату й ціну вище, інакше прибуток завищено.</p>' : ''}
+      </details>`;
+    refreshIcons();
+  }
+  quoteForm.addEventListener('input', (e) => {
+    const q = e.target.dataset.q;
+    if (q) { const row = e.target.closest('.q-order'); const o = row && quoteOrders[Number(row.dataset.i)]; if (o) o[q] = e.target.value; }
+    renderQuote();
+  });
+  quoteForm.addEventListener('change', (e) => {
+    const q = e.target.dataset.q;
+    if (q) { const row = e.target.closest('.q-order'); const o = row && quoteOrders[Number(row.dataset.i)]; if (o) o[q] = e.target.value; }
+    renderQuote();
+  });
+  quoteForm.addEventListener('click', (e) => {
+    const del = e.target.closest('[data-q-del]');
+    if (!del) return;
+    quoteOrders.splice(Number(del.dataset.qDel), 1);
+    if (!quoteOrders.length) quoteOrders = [newOrder()];
+    renderQuoteOrders();
+    renderQuote();
+  });
+  $('#quoteAddOrder').addEventListener('click', () => {
+    if (quoteOrders.length >= QUOTE_MAX_ORDERS) return;
+    quoteOrders.push(newOrder());
+    renderQuoteOrders();
+    renderQuote();
+    const last = $('#quoteOrders .q-order:last-child [data-q="price"]');
+    if (last) last.focus();
+  });
+  renderQuoteOrders();
+  quoteForm.addEventListener('submit', (e) => e.preventDefault());
+
+  function analyticsInsights(A) {
+    const out = [];
+    const cities = A.cities.filter((x) => x.count >= 2);
+    if (cities.length >= 2) {
+      const s = cities.slice().sort((a, b) => b.profitPerKm - a.profitPerKm);
+      const hi = s[0];
+      const lo = s[s.length - 1];
+      if (hi.profitPerKm > lo.profitPerKm) out.push(['map-pin', `Рейси через <b>${escapeHtml(hi.name)}</b> дають <b>${fmtDec.format(hi.profitPerKm)} ₴</b> чистими з кілометра, а через <b>${escapeHtml(lo.name)}</b> — лише <b>${fmtDec.format(lo.profitPerKm)} ₴</b>.`]);
+    }
+    const slow = A.customers.filter((x) => x.payDays !== null && x.payDays >= 7).sort((a, b) => b.payDays - a.payDays)[0];
+    if (slow) out.push(['clock', `<b>${escapeHtml(slow.name)}</b> платить у середньому через <b>${fmtInt.format(slow.payDays)} ${plural(Math.round(slow.payDays), 'день', 'дні', 'днів')}</b> після рейсу.`]);
+    const goodC = A.customers.filter((x) => x.count >= 2 && x.days > 0).sort((a, b) => b.profitPerDay - a.profitPerDay)[0];
+    if (goodC && goodC.profitPerDay > 0) out.push(['trophy', `Найвигідніший постійний замовник — <b>${escapeHtml(goodC.name)}</b>: ${perDayTxt(goodC.profitPerDay)} (${goodC.count} ${plural(goodC.count, 'рейс', 'рейси', 'рейсів')}).`]);
+    const worst = A.ranked[A.ranked.length - 1];
+    if (A.ranked.length >= 4 && worst && worst.perDay < A.all.profitPerDay * 0.5) out.push(['trending-down', `Найслабший рейс — <b>${escapeHtml(worst.t.route || 'без маршруту')}</b> (${tripDates(worst.t)}): ${perDayTxt(worst.perDay)}. Такі завантаження краще перевіряти калькулятором вище.`]);
+    return out;
+  }
+
+  function renderAnalytics(list) {
+    quoteCarOptions();
+    renderQuote();
+    const body = $('#analyticsBody');
+    if (!list.length) {
+      body.innerHTML = `<div class="card"><div class="empty-hero empty-compact"><div class="empty-icon" aria-hidden="true"><i data-lucide="trophy"></i></div>
+        <h2 class="empty-title">${trips.length ? 'За вибраний період рейсів немає' : 'Тут буде видно, що вигідніше'}</h2>
+        <p class="mx-auto mt-2 max-w-lg text-sm text-slate-400">${trips.length ? 'Змініть фільтр періоду вгорі.' : 'Щойно додасте рейси, сайт покаже найвигідніших замовників, міста й рейси.'}</p></div></div>`;
+      return;
+    }
+    const A = Calc.analytics(list, settings);
+    const avg = A.all;
+    const ins = analyticsInsights(A);
+    const hints = [];
+    if (A.noCustomer) hints.push(`у ${A.noCustomer} ${plural(A.noCustomer, 'рейсі', 'рейсах', 'рейсах')} не вказано замовника`);
+    if (A.noRoute) hints.push(`у ${A.noRoute} — маршрут`);
+    const insights = `
+      <section class="card">
+        <div class="mb-3 flex items-center gap-2"><i data-lucide="sparkles" class="h-5 w-5 text-amber-300"></i><h2 class="card-title">Що видно з ваших рейсів</h2></div>
+        <div class="grid grid-cols-2 gap-3 sm:grid-cols-3">
+          <div class="col-span-2 sm:col-span-1"><div class="text-xs text-slate-400">Прибуток бізнесу за добу рейсу</div><div class="num text-xl font-bold ${profitClass(avg.profitPerDay)}">${perDayTxt(avg.profitPerDay)}</div><div class="text-xs text-slate-500">${A.all.count} ${plural(A.all.count, 'рейс', 'рейси', 'рейсів')} за період</div></div>
+          <div><div class="text-xs text-slate-400">Чистими з кілометра</div><div class="num text-xl font-bold ${profitClass(avg.profitPerKm)}">${fmtDec.format(avg.profitPerKm)} ₴</div><div class="text-xs text-slate-500">ставка ${fmtDec.format(avg.pricePerKm)} ₴/км</div></div>
+          <div><div class="text-xs text-slate-400">Замовників</div><div class="num text-xl font-bold text-white">${A.customers.length}</div><div class="text-xs text-slate-500">міст у маршрутах: ${A.cities.length}</div></div>
+        </div>
+        ${ins.length ? `<ul class="insights mt-4">${ins.map(([ic, txt]) => `<li><i data-lucide="${ic}" class="h-4 w-4"></i><span>${txt}</span></li>`).join('')}</ul>` : '<p class="mt-4 text-sm text-slate-400">Поки замало рейсів для висновків — що більше рейсів, то точніше.</p>'}
+        ${hints.length ? `<p class="mt-3 text-xs text-slate-500">Для точності: ${hints.join(', ')}. Їх можна дописати в рейсі (олівець).</p>` : ''}
+      </section>`;
+
+    // Замовники
+    const bestC = A.customers.filter((x) => x.count >= 2 && x.days > 0).sort((a, b) => b.profitPerDay - a.profitPerDay)[0];
+    const payTxt = (x) => x.payDays === null ? '—' : x.payDays < 1 ? 'одразу' : `${fmtInt.format(x.payDays)} ${plural(Math.round(x.payDays), 'день', 'дні', 'днів')}`;
+    const custTag = (x) => (bestC && x.key === bestC.key ? '<span class="badge tag-good">найвигідніший</span>' : '') + (x.payDays !== null && x.payDays >= 14 ? '<span class="badge tag-bad">тягне з оплатою</span>' : '');
+    const customers = A.customers.length ? `
+      <section class="card">
+        <div class="mb-3"><h2 class="card-title flex items-center gap-2"><i data-lucide="building-2" class="h-5 w-5 text-sky-300"></i>Замовники</h2>
+        <p class="text-xs text-slate-400">Хто платить найкраще і хто тягне з оплатою. «Оплата» — скільки днів після рейсу в середньому чекали гроші.</p></div>
+        <div class="hidden overflow-x-auto sm:block"><table class="w-full min-w-[760px] text-sm">
+          <thead><tr class="text-left text-xs text-slate-400">
+            <th class="py-2 pr-3 font-medium">Замовник</th><th class="py-2 pr-3 text-right font-medium">Рейсів</th><th class="py-2 pr-3 text-right font-medium">Фрахт</th>
+            <th class="py-2 pr-3 text-right font-medium">Ставка ₴/км</th><th class="py-2 pr-3 text-right font-medium">Чистими ₴/км</th><th class="py-2 pr-3 text-right font-medium">На добу</th>
+            <th class="py-2 pr-3 text-right font-medium">Оплата</th><th class="py-2 pr-3 text-right font-medium">Винні зараз</th>
+          </tr></thead>
+          <tbody class="divide-y divide-white/5">${A.customers.map((x) => `<tr>
+            <td class="py-2.5 pr-3"><div class="flex flex-wrap items-center gap-1.5"><span class="font-medium text-white">${escapeHtml(x.name)}</span>${custTag(x)}</div></td>
+            <td class="num py-2.5 pr-3 text-right">${x.count}</td>
+            <td class="num py-2.5 pr-3 text-right">${uah(x.freight)}</td>
+            <td class="num py-2.5 pr-3 text-right">${fmtDec.format(x.pricePerKm)}</td>
+            <td class="num py-2.5 pr-3 text-right font-semibold ${profitClass(x.profitPerKm)}">${fmtDec.format(x.profitPerKm)}</td>
+            <td class="num py-2.5 pr-3 text-right ${profitClass(x.profitPerDay)}">${uah(x.profitPerDay)}</td>
+            <td class="num py-2.5 pr-3 text-right ${x.payDays >= 14 ? 'text-loss' : ''}">${payTxt(x)}</td>
+            <td class="num py-2.5 pr-3 text-right ${x.waiting ? 'text-white' : 'text-slate-500'}">${x.waiting ? uah(x.waiting) : '—'}</td>
+          </tr>`).join('')}</tbody></table></div>
+        <ul class="space-y-2 sm:hidden">${A.customers.map((x) => `<li class="an-item">
+          <div class="flex flex-wrap items-center gap-1.5"><b class="text-white">${escapeHtml(x.name)}</b>${custTag(x)}</div>
+          <div class="an-grid"><span>${x.count} ${plural(x.count, 'рейс', 'рейси', 'рейсів')}</span><span class="${profitClass(x.profitPerKm)}">${fmtDec.format(x.profitPerKm)} ₴/км чистими</span>
+          <span class="${profitClass(x.profitPerDay)}">${perDayTxt(x.profitPerDay)}</span><span>оплата: ${payTxt(x)}</span>${x.waiting ? `<span class="text-white">винні ${uah(x.waiting)}</span>` : ''}</div>
+        </li>`).join('')}</ul>
+      </section>` : '';
+
+    // Міста
+    const many = A.cities.filter((x) => x.count >= 2).sort((a, b) => b.profitPerKm - a.profitPerKm);
+    const once = A.cities.filter((x) => x.count < 2);
+    const maxKm = Math.max(1, ...A.cities.map((x) => Math.abs(x.profitPerKm)));
+    const cityRow = (x) => {
+      const d = avg.profitPerKm ? ((x.profitPerKm - avg.profitPerKm) / Math.abs(avg.profitPerKm)) * 100 : 0;
+      return `<li class="city-row">
+        <div class="min-w-0"><div class="truncate font-medium text-white">${escapeHtml(x.name)}</div><div class="text-xs text-slate-500">${x.count} ${plural(x.count, 'рейс', 'рейси', 'рейсів')} · ${perDayTxt(x.profitPerDay)}</div></div>
+        <div class="bar !mt-0"><i style="width:${(Math.abs(x.profitPerKm) / maxKm) * 100}%;background:${x.profitPerKm < 0 ? VIZ.loss : VIZ.owner}"></i></div>
+        <div class="text-right"><div class="num font-semibold ${profitClass(x.profitPerKm)}">${fmtDec.format(x.profitPerKm)} ₴/км</div>${x.count >= 2 && Math.abs(d) >= 1 ? `<div class="text-xs ${d > 0 ? 'text-profit' : 'text-loss'}">${pctDiff(d)} від середнього</div>` : ''}</div>
+      </li>`;
+    };
+    const cities = A.cities.length ? `
+      <section class="card">
+        <div class="mb-3"><h2 class="card-title flex items-center gap-2"><i data-lucide="map-pin" class="h-5 w-5 text-lime-300"></i>Міста</h2>
+        <p class="text-xs text-slate-400">Маршрути у вас різні, але міста повторюються. Рейс «Дніпро → Одеса → Київ» рахується в кожному з трьох міст. Видно, де вантажі дорожчі.</p></div>
+        ${many.length ? `<ul class="space-y-1">${many.map(cityRow).join('')}</ul>` : '<p class="text-sm text-slate-400">Поки жодне місто не трапилось двічі — порівнювати ще рано.</p>'}
+        ${once.length ? `<details class="quote-more mt-3"><summary><i data-lucide="chevron-down" class="h-4 w-4"></i>Ще ${once.length} ${plural(once.length, 'місто', 'міста', 'міст')} з одним рейсом</summary><ul class="mt-2 space-y-1">${once.map(cityRow).join('')}</ul></details>` : ''}
+      </section>` : '';
+
+    // Найкращі / найслабші рейси
+    const best = A.ranked.slice(0, 5);
+    const worst = A.ranked.length > 5 ? A.ranked.slice(Math.max(5, A.ranked.length - 5)).reverse() : [];
+    const tripRow = (r, i) => `<li><button type="button" class="rank-row" data-open="${escapeHtml(r.t.id)}">
+        <span class="rank-n">${i + 1}</span>
+        <span class="min-w-0 flex-1 text-left"><span class="flex min-w-0 items-center gap-2">${tripPlate(r.t).plate ? `<span class="rank-plate">${plateHtml(tripPlate(r.t).plate, tripPlate(r.t).brand || undefined)}</span>` : ''}<span class="truncate text-sm text-white">${escapeHtml(r.t.route || 'Без маршруту')}</span></span><span class="block truncate text-xs text-slate-500">${tripDates(r.t)}${r.t.customer ? ' · ' + escapeHtml(r.t.customer) : ''}</span></span>
+        <span class="shrink-0 text-right"><span class="num block text-sm font-semibold ${profitClass(r.perDay)}">${uah(r.perDay)}</span><span class="block text-xs text-slate-500">на добу · ${fmtDec.format(r.perKm)} ₴/км</span></span>
+      </button></li>`;
+    const ranks = A.ranked.length ? `
+      <section class="grid gap-4 ${worst.length ? 'lg:grid-cols-2' : ''}">
+        <div class="card"><div class="mb-2"><h2 class="card-title flex items-center gap-2"><i data-lucide="trophy" class="h-5 w-5 text-amber-300"></i>${worst.length ? 'Найкращі рейси' : 'Рейси за прибутком'}</h2>
+          <p class="text-xs text-slate-400">За прибутком на добу — скільки машина реально заробляла, поки була зайнята.</p></div>
+          <ol class="space-y-1">${best.map(tripRow).join('')}</ol></div>
+        ${worst.length ? `<div class="card"><div class="mb-2"><h2 class="card-title flex items-center gap-2"><i data-lucide="trending-down" class="h-5 w-5 text-rose-300"></i>Найслабші рейси</h2>
+          <p class="text-xs text-slate-400">Такі завантаження краще не брати — або просити більше.</p></div>
+          <ol class="space-y-1">${worst.map(tripRow).join('')}</ol></div>` : ''}
+      </section>` : '';
+
+    body.innerHTML = insights + customers + cities + ranks;
   }
 
   // ---------- Нагадування по авто ----------
@@ -1507,6 +1839,10 @@
   .plate{display:inline-flex;align-items:stretch;border:2px solid #1b2027;border-radius:6px;overflow:hidden;background:#fff;vertical-align:middle}
   .plate i{display:flex;align-items:flex-end;padding:0 5px 3px;background:#0057b8;color:#ffd500;font:700 9px/1 system-ui,sans-serif;font-style:normal}
   .plate b{padding:3px 10px;font:800 22px/1.1 system-ui,sans-serif;letter-spacing:.06em}
+  .brand-logo{display:inline-grid;place-items:center;width:36px;height:36px;border-radius:50%;background:radial-gradient(circle at 35% 25%,var(--bc-hi),var(--bc) 55%,var(--bc-lo));color:var(--ink);border:2px solid #b9bec3;vertical-align:middle;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .brand-logo svg{width:24px;height:24px}
+  .brand-logo.is-mono{font:800 11px/1 system-ui,sans-serif}
+  .sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0,0,0,0)}
   .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0 26px} .kv td:first-child{color:#5b636d} .kv td:last-child{text-align:right;font-weight:600}
   .calc td.op{width:18px;color:#5b636d;text-align:center} .calc tr.sum td{font-weight:700;border-top:2px solid #1b2027}
   .split{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0} .split div{border:1px solid #e2e2dc;border-radius:8px;padding:8px 12px} .split div.me{background:#eefaf3;border-color:#9fd8b8}
@@ -1562,7 +1898,7 @@ ${body}
     const body = `
 <div class="top">
   <div>
-    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${plate ? `<span class="plate"><i>UA</i><b>${E(plate)}</b></span>` : ''}${brand ? `<span style="font-size:16px;font-weight:600">${E(brand)}</span>` : ''}${t.managed ? '<span class="muted">· авто під управлінням</span>' : ''}</div>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">${brandLogo(brand)}${plate ? `<span class="plate"><i>UA</i><b>${E(plate)}</b></span>` : ''}${brand ? `<span style="font-size:16px;font-weight:600">${E(brand)}</span>` : ''}${t.managed ? '<span class="muted">· авто під управлінням</span>' : ''}</div>
     <h1 style="margin-top:10px">${tripDates(t)}</h1>
     <div class="muted">${E(t.route || 'Без маршруту')}</div>
   </div>
@@ -1789,6 +2125,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     if (!tripPayments(t).length) t.payments = paysForForm(t); // старий рейс «чекаємо» без рядків
     for (const p of t.payments) {
       if (!p || (payId && p.id !== payId)) continue;
+      if (p.received !== true) p.waited = true;
       p.received = value === undefined ? !p.received : value;
       p.receivedDate = p.received ? p.receivedDate || d : '';
     }
@@ -1806,7 +2143,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     const c = calcTrip(t, settings);
     const { plate, brand } = tripPlate(t);
     $('#viewTitleTrip').innerHTML = plate
-      ? `<span class="plate-line plate-lg">${plateHtml(plate)}${brand ? `<span class="plate-brand">${escapeHtml(brand)}</span>` : ''}</span>`
+      ? `<span class="plate-line plate-lg">${plateHtml(plate, brand || undefined)}${brand ? `<span class="plate-brand">${escapeHtml(brand)}</span>` : ''}</span>`
       : escapeHtml(tripDates(t));
     $('#viewSubtitle').textContent = (plate ? tripDates(t) + ' · ' : '') + (t.route || 'Без маршруту');
 
@@ -2332,6 +2669,8 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
       note: String(p.note || '').trim().slice(0, 120),
       order: Number.isInteger(p.order) ? p.order : null,
       received: !!p.received, receivedDate: p.received ? p.receivedDate || today() : '',
+      // waited — цю суму колись чекали (для аналітики «скільки днів замовник тягне з оплатою»)
+      waited: !!p.waited || !p.received,
     })).filter((p) => p.amount > 0);
     d.orderText = formOrderText.slice(0, 5000);
     if (d.payments.length) { const s = sumPays(d.payments); d.cash = s.cash; d.bank = s.bank; d.card = s.card; }
@@ -2426,11 +2765,16 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
   const driverForm = $('#driverForm');
   const carForm = $('#carForm');
 
+  /** Місткість авто для списку: «86 м³ · 20 000 кг» або нагадування заповнити. */
+  const carSizeLine = (c) => (num(c.volume) > 0 && num(c.capacityKg) > 0
+    ? `<div class="truncate text-xs text-slate-400">${fmtL.format(num(c.volume))} м³ · ${fmtInt.format(num(c.capacityKg))} кг</div>`
+    : '<div class="truncate text-xs font-semibold text-amber-300">Вкажіть м³ і вантажопідйомність (олівець)</div>');
+
   function renderRefs() {
     const tripsWith = (key, id) => trips.filter((t) => t[key] === id).length;
-    const item = (id, kind, title, sub, icon, color, count, extra = '') => `
+    const item = (id, kind, title, sub, icon, color, count, extra = '', logo = '') => `
       <li class="flex items-center gap-3 rounded-xl border ${editingCarId === id ? 'border-amber-400/40 bg-amber-400/[0.06]' : 'border-white/5 bg-white/[0.02]'} px-3 py-2">
-        <div class="grid h-8 w-8 shrink-0 place-items-center rounded-lg ${color}"><i data-lucide="${icon}" class="h-4 w-4"></i></div>
+        ${logo ? `<div class="grid h-8 w-8 shrink-0 place-items-center">${logo}</div>` : `<div class="grid h-8 w-8 shrink-0 place-items-center rounded-lg ${color}"><i data-lucide="${icon}" class="h-4 w-4"></i></div>`}
         <div class="min-w-0 flex-1">
           <div class="truncate font-medium text-white">${escapeHtml(title)}</div>
           <div class="truncate text-xs text-slate-500">${escapeHtml(sub)}${sub ? ' · ' : ''}${count} ${plural(count, 'рейс', 'рейси', 'рейсів')}</div>
@@ -2446,7 +2790,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
       : empty('Водіїв ще немає');
     $('#carsList').innerHTML = cars.length
       ? cars.slice().sort(sortByLabel(carLabel)).map((c) => item(c.id, 'car', c.plate, c.brand, c.managed ? 'key-round' : 'truck', c.managed ? 'bg-slate-400/15 text-slate-200' : 'bg-sky-500/15 text-sky-300', tripsWith('carId', c.id),
-        c.managed ? `<div class="truncate text-xs text-slate-300">Під управлінням · ${escapeHtml(c.ownerName || '—')} · ваша частка ${fmtL.format(num(c.mgmtShare))}%</div>` : '')).join('')
+        carSizeLine(c) + (c.managed ? `<div class="truncate text-xs text-slate-300">Під управлінням · ${escapeHtml(c.ownerName || '—')} · ваша частка ${fmtL.format(num(c.mgmtShare))}%</div>` : ''), brandLogo(c.brand, 'brand-logo-lg'))).join('')
       : empty('Авто ще немає');
     // Підказки імен власників (щоб однаково писати імʼя для кількох авто)
     const names = new Map();
@@ -2508,12 +2852,21 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     if (on && carForm.elements.mgmtShare.value === '') carForm.elements.mgmtShare.value = settings.mgmtShare;
   }
   carForm.elements.managed.addEventListener('change', syncCarMgmtFields);
+  function syncBrandHint() {
+    const v = carForm.elements.brand.value.trim();
+    const b = v && window.Brands ? window.Brands.detect(v) : null;
+    $('#carBrandHint').innerHTML = !v ? '' : b
+      ? `<span class="inline-flex items-center gap-2">${brandLogo(v)}<span>Розпізнано: <b class="text-slate-200">${escapeHtml(b.t)}</b> — значок буде біля номера всюди на сайті</span></span>`
+      : 'Марку не розпізнано — значка не буде. Напишіть марку першим словом, напр. «MAN TGX», «Мерседес Спринтер».';
+  }
+  carForm.elements.brand.addEventListener('input', syncBrandHint);
 
   function resetCarForm() {
     editingCarId = null;
     carForm.reset();
     $$('.invalid', carForm).forEach((el) => el.classList.remove('invalid'));
     syncCarMgmtFields();
+    syncBrandHint();
     $('#carOdoHint').textContent = '';
     $('#carService').open = false;
     $('#carSubmit').innerHTML = '<i data-lucide="plus" class="h-4 w-4"></i><span>Додати авто</span>';
@@ -2529,6 +2882,8 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     editingCarId = id;
     carForm.elements.plate.value = c.plate || '';
     carForm.elements.brand.value = c.brand || '';
+    carForm.elements.volume.value = num(c.volume) > 0 ? c.volume : '';
+    carForm.elements.capacityKg.value = num(c.capacityKg) > 0 ? c.capacityKg : '';
     carForm.elements.managed.checked = !!c.managed;
     carForm.elements.ownerName.value = c.ownerName || '';
     carForm.elements.mgmtShare.value = c.managed ? num(c.mgmtShare) : '';
@@ -2537,6 +2892,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     $('#carOdoHint').textContent = odo ? `Поточний пробіг за рейсами: ${fmtInt.format(odo)} км` : '';
     $('#carService').open = CAR_SERVICE_FIELDS.some((f) => c[f] !== undefined && c[f] !== '');
     syncCarMgmtFields();
+    syncBrandHint();
     $('#carSubmit').innerHTML = '<i data-lucide="save" class="h-4 w-4"></i><span>Зберегти зміни</span>';
     $('#carCancelEdit').classList.remove('hidden');
     renderRefs();
@@ -2553,12 +2909,19 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     const ownerName = managed ? cleanName(el.ownerName.value) : '';
     const shareRaw = el.mgmtShare.value.trim();
     const mgmtShare = managed ? (shareRaw === '' ? num(settings.mgmtShare) : num(shareRaw)) : '';
+    const volume = num(el.volume.value);
+    const capacityKg = num(el.capacityKg.value);
+    const badVol = !(volume > 0 && volume <= 300);
+    const badKg = !(capacityKg > 0 && capacityKg <= 100000);
     el.plate.classList.toggle('invalid', !plate);
     el.brand.classList.toggle('invalid', !brand);
+    el.volume.classList.toggle('invalid', badVol);
+    el.capacityKg.classList.toggle('invalid', badKg);
     el.ownerName.classList.toggle('invalid', managed && !ownerName);
     const badShare = managed && (mgmtShare < 0 || mgmtShare > 100);
     el.mgmtShare.classList.toggle('invalid', badShare);
     if (!plate || !brand) return toast('Вкажіть держ. номер та марку авто', 'err');
+    if (badVol || badKg) return toast('Вкажіть обʼєм кузова (м³) і вантажопідйомність (кг) — без них калькулятор не перевірить завантаження', 'err');
     if (managed && !ownerName) return toast('Вкажіть власника авто', 'err');
     if (badShare) return toast('Частка — від 0 до 100%', 'err');
     if (cars.some((c) => c.id !== editingCarId && normPlate(c.plate) === plate)) return toast('Авто з таким номером уже є', 'err');
@@ -2583,7 +2946,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
       const c = cars.find((x) => x.id === editingCarId);
       if (!c) { resetCarForm(); return; }
       const before = { managed: !!c.managed, ownerName: c.ownerName || '', mgmtShare: c.managed ? num(c.mgmtShare) : '' };
-      Object.assign(c, { plate, brand }, mgmt);
+      Object.assign(c, { plate, brand, volume, capacityKg }, mgmt);
       // Змінили імʼя власника, і старе імʼя більше ні в кого — переносимо записи розрахунків
       const oldKey = ownerKey(before.ownerName);
       if (before.managed && managed && oldKey && oldKey !== ownerKey(ownerName) && !cars.some((x) => x.managed && ownerKey(x.ownerName) === oldKey)) {
@@ -2612,7 +2975,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
       return;
     }
 
-    const c = Object.assign({ id: uid(), plate, brand }, mgmt);
+    const c = Object.assign({ id: uid(), plate, brand, volume, capacityKg }, mgmt);
     cars.push(c);
     resetCarForm();
     afterRefsChange();
@@ -3068,7 +3431,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     ];
     // Якщо довідник порожній — додаємо демо-водіїв та авто
     if (!drivers.length) drivers.push({ id: uid(), lastName: 'Коваленко', firstName: 'Олег' }, { id: uid(), lastName: 'Шевчук', firstName: 'Андрій' });
-    if (!cars.length) cars.push({ id: uid(), plate: 'AA1234BB', brand: 'MAN TGX' });
+    if (!cars.length) cars.push({ id: uid(), plate: 'AA1234BB', brand: 'MAN TGX', volume: 86, capacityKg: 20000 });
     const repairs = [0, 3500, 0, 0, 7800, 0];
     let odo = Math.max(250000, ...trips.map((t) => num(t.odoEnd)));
     demo.forEach((d, i) => {
@@ -3426,6 +3789,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
   document.addEventListener('click', (e) => { if (!$('#menuWrap').contains(e.target)) menu.classList.add('hidden'); });
 
   document.addEventListener('click', (e) => {
+    if (e.target.closest('[data-menu-link]')) menu.classList.add('hidden');
     const closer = e.target.closest('[data-close]');
     if (closer) { closeModal(closer.closest('.modal')); return; }
 

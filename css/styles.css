@@ -807,3 +807,95 @@ main.app-container { padding-bottom: 12rem; }
 
 .preview-empty { display: grid; gap: .5rem; padding: 1rem; border-radius: var(--r-md); border: 1px dashed var(--line-strong); color: var(--muted); font-size: .875rem; line-height: 1.5; }
 .preview-empty b { color: var(--chalk); font-weight: 600; }
+
+/* ---------- Аналітика ---------- */
+.badge.tag-good { color: var(--profit) !important; background: rgba(76,195,138,.12) !important; }
+.badge.tag-bad { color: var(--loss) !important; background: rgba(239,106,91,.12) !important; }
+.quote-more > summary { list-style: none; display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; font-size: .85rem; font-weight: 500; color: var(--muted); min-height: 2rem; }
+.quote-more > summary::-webkit-details-marker { display: none; }
+.quote-more > summary:hover { color: var(--chalk); }
+.quote-more > summary:focus-visible { outline: 2px solid var(--signal); outline-offset: 3px; border-radius: var(--r-sm); }
+.quote-more > summary > i, .quote-more > summary > .ph-duotone, .quote-more > summary > .ph-bold { transition: transform .2s ease; }
+.quote-more[open] > summary > i, .quote-more[open] > summary > .ph-duotone, .quote-more[open] > summary > .ph-bold { transform: rotate(180deg); }
+.quote-result { align-self: start; }
+.quote-empty { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 1.5rem .5rem; max-width: 28rem; margin: 0 auto; }
+.quote-verdict { display: flex; align-items: flex-start; gap: .75rem; padding: .9rem 1rem; border-radius: var(--r-md); border: 1px solid; }
+.quote-verdict.is-good { color: var(--profit); background: rgba(76,195,138,.1); border-color: rgba(76,195,138,.35); }
+.quote-verdict.is-weak { color: var(--signal); background: rgba(239,186,24,.1); border-color: rgba(239,186,24,.35); }
+.quote-verdict.is-loss { color: var(--loss); background: rgba(239,106,91,.1); border-color: rgba(239,106,91,.35); }
+.quote-verdict p { color: var(--chalk); opacity: .9; }
+.quote-verdict p b { color: #fff; }
+.quote-prices { display: grid; gap: .5rem; }
+.quote-prices:empty { display: none; }
+@media (min-width: 640px) { .quote-prices { grid-template-columns: 1fr 1fr; } }
+.quote-prices > div { display: flex; flex-direction: column; gap: .1rem; padding: .6rem .8rem; border-radius: var(--r-sm); background: rgba(242,240,234,.04); border: 1px dashed var(--line-strong); }
+.quote-prices span { font-size: .75rem; color: var(--muted); }
+.quote-prices b { font-size: 1.1rem; color: var(--chalk); }
+.insights { display: grid; gap: .5rem; }
+.insights li { display: flex; gap: .6rem; align-items: flex-start; font-size: .9rem; color: #dcdbd5; line-height: 1.45; }
+.insights li > i, .insights li > .ph-duotone { color: var(--signal); margin-top: .2rem; flex-shrink: 0; }
+.insights b { color: var(--chalk); }
+.an-item { padding: .7rem .8rem; border-radius: var(--r-sm); background: rgba(242,240,234,.03); border: 1px solid var(--line); }
+.an-grid { margin-top: .35rem; display: flex; flex-wrap: wrap; gap: .25rem .9rem; font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; }
+.city-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; align-items: center; gap: .75rem; padding: .45rem 0; border-bottom: 1px solid var(--line); }
+.city-row:last-child { border-bottom: 0; }
+@media (max-width: 480px) { .city-row { grid-template-columns: minmax(0, 1fr) auto; } .city-row .bar { grid-column: 1 / -1; grid-row: 2; } }
+.rank-row { display: flex; width: 100%; align-items: center; gap: .75rem; padding: .5rem .5rem; border-radius: var(--r-sm); }
+.rank-row:hover { background: rgba(242,240,234,.04); }
+.rank-row:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; }
+.rank-n { display: grid; place-items: center; width: 1.6rem; height: 1.6rem; flex-shrink: 0; border-radius: 999px; background: rgba(242,240,234,.06); font-size: .75rem; font-weight: 600; color: var(--muted); }
+
+/* Шапка на планшетах і ноутбуках: іконки вкладок лише на широких екранах, щоб усе влазило */
+@media (max-width: 1279px) { .tabs .tab > i, .tabs .tab > .ph-duotone, .tabs .tab > .ph-bold { display: none; } }
+/* Планшет: «Водії та авто» і «Ставки» — у меню «Дані», вкладки щільніші */
+@media (min-width: 768px) and (max-width: 1023px) {
+  #refsBtn, #settingsBtn { display: none; }
+  .tabs .tab { padding-left: .6rem; padding-right: .6rem; }
+}
+.quote-result .preview-row dd { white-space: nowrap; }
+.rank-plate { flex-shrink: 0; font-size: .8rem; }
+.rank-plate .plate { height: 1.35rem; }
+.q-order { padding: .65rem .75rem .75rem; border-radius: var(--r-md); background: rgba(242,240,234,.03); border: 1px solid var(--line); }
+.q-order-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; min-height: 1.75rem; margin-bottom: .35rem; font-size: .8rem; font-weight: 600; color: var(--muted); }
+.q-order-head .icon-btn { width: 1.75rem; height: 1.75rem; }
+.q-load { padding: .8rem .9rem; border-radius: var(--r-md); background: rgba(242,240,234,.03); border: 1px solid var(--line); }
+.q-load.is-over { border-color: rgba(239,106,91,.45); background: rgba(239,106,91,.06); }
+.q-load .plate { height: 1.35rem; font-size: .8rem; }
+.q-load-row + .q-load-row { margin-top: .6rem; }
+.rank-plate .plate-num, .q-load .plate-num { font-size: .7rem; padding: 0 .4rem; }
+
+/* ---------- Значки марок авто біля номерів: обʼємна емблема ----------
+   Хромований обідок + фірмовий колір із градієнтом + скляний відблиск + «видавлений» логотип.
+   Кольори приходять з js (--bc, --bc-hi, --bc-lo, --ink). */
+.plate-wrap { display: inline-flex; align-items: center; gap: .4rem; flex: none; vertical-align: middle; }
+.brand-logo {
+  --size: 1.8rem;
+  position: relative; isolation: isolate; overflow: hidden;
+  display: inline-grid; place-items: center; flex: none; width: var(--size); height: var(--size); border-radius: 999px;
+  color: var(--ink, #fff);
+  background: radial-gradient(circle at 35% 22%, var(--bc-hi, #6b7480), var(--bc, #2a313a) 52%, var(--bc-lo, #11161c) 100%);
+  box-shadow:
+    inset 0 1.5px 1px rgba(255,255,255,.55),      /* світло зверху всередині */
+    inset 0 -2px 3px rgba(0,0,0,.45),             /* тінь знизу всередині */
+    0 0 0 1.5px #e9ecee,                          /* хром: світла смуга */
+    0 0 0 2.5px #8a9198,                          /* хром: темна кромка */
+    0 0 0 3px rgba(0,0,0,.35),
+    0 3px 6px rgba(0,0,0,.5);                     /* тінь під емблемою */
+}
+/* скляний відблиск зверху */
+.brand-logo::after {
+  content: ""; position: absolute; z-index: 1; left: 12%; right: 12%; top: 4%; height: 46%; border-radius: 999px;
+  background: linear-gradient(180deg, rgba(255,255,255,.55), rgba(255,255,255,0));
+  pointer-events: none;
+}
+.brand-logo svg {
+  position: relative; width: 70%; height: 70%;
+  filter: drop-shadow(0 1px 0 rgba(0,0,0,.45)) drop-shadow(0 -0.5px 0 rgba(255,255,255,.25));
+}
+.brand-logo.is-mono > span[aria-hidden] {
+  position: relative; font: 800 calc(var(--size) * .3)/1 Unbounded, Onest, sans-serif; letter-spacing: .02em;
+  text-shadow: 0 1px 0 rgba(0,0,0,.45);
+}
+.brand-logo-lg { --size: 2.1rem; }
+.plate-lg .brand-logo { --size: 2.4rem; }
+.rank-plate .brand-logo, .q-load .brand-logo { --size: 1.45rem; }

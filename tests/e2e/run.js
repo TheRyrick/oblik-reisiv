@@ -177,9 +177,13 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
     check('авто: підказка поточного пробігу', /52\s?000/.test(hint), hint);
     await ev(`const f = document.querySelector('#carForm'); f.serviceEveryKm.value = '-1'; f.requestSubmit()`); await sleep(150);
     check('авто: відʼємний пробіг ТО не приймається', await ev(`return Cloud._cache.cars.find((c) => c.id === 'c2').serviceEveryKm === undefined`));
-    await ev(`const f = document.querySelector('#carForm'); f.serviceEveryKm.value = '10000'; f.serviceLastOdo.value = '42500'; f.tachoUntil.value = '2026-11-20'; f.requestSubmit()`); await sleep(300);
+    // Без кубатури і вантажопідйомності авто не зберігається
+    await ev(`const f = document.querySelector('#carForm'); f.serviceEveryKm.value = '10000'; f.serviceLastOdo.value = '42500'; f.tachoUntil.value = '2026-11-20'; f.volume.value = ''; f.capacityKg.value = ''; f.requestSubmit()`); await sleep(200);
+    const noVol = await ev(`const f = document.querySelector('#carForm'); return { saved: Cloud._cache.cars.find((c) => c.id === 'c2').serviceEveryKm, inv: f.volume.classList.contains('invalid') && f.capacityKg.classList.contains('invalid'), warn: /м³ і вантажопідйомність/.test(document.querySelector('#carsList').textContent) }`);
+    check('авто: без м³ і вантажопідйомності не зберігається, у списку — нагадування', noVol.saved === undefined && noVol.inv && noVol.warn, noVol);
+    await ev(`const f = document.querySelector('#carForm'); f.volume.value = '20'; f.capacityKg.value = '1500'; f.requestSubmit()`); await sleep(300);
     const c2 = await ev(`return Cloud._cache.cars.find((c) => c.id === 'c2')`);
-    check('авто: ТО і тахограф збережено, управління не злетіло', c2.serviceEveryKm === 10000 && c2.tachoUntil === '2026-11-20' && c2.managed === true && c2.ownerName === 'Петренко Іван', c2);
+    check('авто: ТО, тахограф, м³ і кг збережено, управління не злетіло', c2.serviceEveryKm === 10000 && c2.tachoUntil === '2026-11-20' && c2.volume === 20 && c2.capacityKg === 1500 && c2.managed === true && c2.ownerName === 'Петренко Іван', c2);
     await shot('06-car-service');
     await ev(`document.querySelector('#refsModal [data-close]').click()`);
     await go('');
@@ -342,7 +346,7 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
     // ===== Документи: ліцензія =====
     await ev(`document.querySelector('#refsBtn').click()`); await sleep(200);
     await ev(`document.querySelector('[data-edit-car="c1"]').click()`); await sleep(150);
-    await ev(`const f = document.querySelector('#carForm'); f.licenseUntil.value = '2026-11-15'; f.permitUntil.value = 'xx'; f.requestSubmit()`); await sleep(300);
+    await ev(`const f = document.querySelector('#carForm'); f.licenseUntil.value = '2026-11-15'; f.permitUntil.value = 'xx'; f.volume.value = '86'; f.capacityKg.value = '20000'; f.requestSubmit()`); await sleep(300);
     const lic = await ev(`const c = Cloud._cache.cars.find((x) => x.id === 'c1'); return { l: c.licenseUntil, p: c.permitUntil }`);
     await ev(`document.querySelector('#refsModal [data-close]').click()`); await sleep(150);
     const rem2 = await ev(`return document.querySelector('#reminders').innerText`);
@@ -429,7 +433,7 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
 
     // ===== Телефон: нічого не вилазить за екран =====
     await viewport(390, 844, true);
-    for (const h of ['', '#trips', '#settle', '#expenses']) {
+    for (const h of ['', '#trips', '#settle', '#expenses', '#analytics']) {
       await go(h);
       const over = await ev(`return document.documentElement.scrollWidth - window.innerWidth`);
       check(`телефон ${h || '#dashboard'}: без горизонтальної прокрутки`, over <= 1, over);
@@ -477,17 +481,74 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
     check('форма рейсу: без сум — підказка, з сумою — розрахунок', pv.hint && pv.calc, pv);
     await sleep(300);
 
+    // ===== Аналітика: калькулятор «Чи брати вантаж?», міста, рейси =====
+    await go('#analytics');
+    const an = await ev(`
+      const out = { visible: !document.querySelector('#analyticsView').classList.contains('hidden'), dashHidden: document.querySelector('#dashboardView').classList.contains('hidden'),
+        tab: document.querySelector('.tab.active')?.dataset.tab, title: document.querySelector('#viewTitle').textContent,
+        emptyHint: !!document.querySelector('#quoteResult .quote-empty') };
+      const f = document.querySelector('#quoteForm');
+      const set = (o) => { for (const [k, v] of Object.entries(o)) f.elements[k].value = v; f.dispatchEvent(new Event('input', { bubbles: true })); };
+      const ord = (i, o) => { const row = document.querySelectorAll('#quoteOrders .q-order')[i]; for (const [k, v] of Object.entries(o)) { const el = row.querySelector('[data-q="' + k + '"]'); el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); } };
+      ord(0, { price: '60000' }); set({ km: '1000' });
+      out.needCar = !!document.querySelector('#quoteResult .quote-empty');
+      set({ carId: 'c1' });
+      // три замовлення в одну машину (86 м³ / 20 т): разом 60 000 ₴, 70 м³, 14 т
+      ord(0, { price: '30000', volume: '30', kg: '6000' });
+      document.querySelector('#quoteAddOrder').click(); ord(1, { price: '20000', volume: '25', kg: '5000', pay: 'cash' });
+      document.querySelector('#quoteAddOrder').click(); ord(2, { price: '10000', volume: '15', kg: '3000' });
+      out.orders = document.querySelectorAll('#quoteOrders .q-order').length;
+      out.sum = document.querySelector('#quoteOrdersSum').textContent;
+      out.load = document.querySelector('#quoteResult .q-load')?.textContent.replace(/\\s+/g, ' ');
+      out.over0 = !!document.querySelector('#quoteResult .q-load.is-over');
+      ord(2, { volume: '40' });
+      out.over = document.querySelector('#quoteResult .q-load.is-over')?.textContent.replace(/\\s+/g, ' ');
+      ord(2, { volume: '15' });
+      out.good = document.querySelector('#quoteResult .quote-verdict')?.className;
+      out.min = document.querySelector('#quoteResult .quote-prices b')?.textContent.replace(/\\D/g, '');
+      document.querySelector('#quoteOrders [data-q-del="2"]').click(); document.querySelector('#quoteOrders [data-q-del="1"]').click();
+      ord(0, { price: '5000' });
+      out.ordersAfterDel = document.querySelectorAll('#quoteOrders .q-order').length;
+      out.loss = document.querySelector('#quoteResult .quote-verdict')?.className;
+      out.lossText = document.querySelector('#quoteResult .quote-verdict')?.textContent;
+      out.cities = [...document.querySelectorAll('#analyticsBody .city-row .font-medium')].map((e) => e.textContent);
+      out.ranked = document.querySelectorAll('#analyticsBody .rank-row').length;
+      out.plates = document.querySelectorAll('#analyticsBody .rank-row .plate').length;
+      out.cars = f.elements.carId.options.length;
+      ord(0, { price: '' }); set({ km: '' });
+      return out;`);
+    check('аналітика: окрема вкладка з заголовком', an.visible && an.dashHidden && an.tab === 'analytics' && an.title === 'Аналітика', an);
+    check('аналітика: калькулятор — підказка, «вигідно», «збиток» з мінімальною ставкою', an.emptyHint && an.needCar && /is-good/.test(an.good) && +an.min > 5000 && /is-loss/.test(an.loss) && /просіть від/.test(an.lossText) && an.cars === 3, an);
+    check('аналітика: кілька замовлень в одну машину — сума, м³, кг, «не влізе»', an.orders === 3 && /3 замовлення/.test(an.sum) && /60\s000/.test(an.sum) && /70 з 86 м³/.test(an.load) && /14\s000 з 20\s000 кг/.test(an.load) && !an.over0 && /Не влізе: перевищено на 9 м³/.test(an.over) && an.ordersAfterDel === 1, an);
+    // Значки марок біля номерів (у мок-даних: MAN TGX і Renault Master)
+    const logos = await ev(`
+      const out = { analytics: document.querySelectorAll('#analyticsBody .plate-wrap .brand-logo').length };
+      location.hash = '#trips'; await new Promise((r) => setTimeout(r, 300));
+      out.trips = document.querySelectorAll('#tripsView .plate-wrap .brand-logo').length;
+      out.titles = [...new Set([...document.querySelectorAll('#tripsView .brand-logo')].map((e) => e.title))];
+      document.querySelector('#refsBtn').click(); await new Promise((r) => setTimeout(r, 200));
+      out.refs = document.querySelectorAll('#carsList .brand-logo').length;
+      const f = document.querySelector('#carForm'); f.brand.value = 'Мерседес Спринтер'; f.brand.dispatchEvent(new Event('input', { bubbles: true }));
+      out.hint = document.querySelector('#carBrandHint').textContent;
+      f.brand.value = 'Щось незрозуміле'; f.brand.dispatchEvent(new Event('input', { bubbles: true }));
+      out.hint2 = document.querySelector('#carBrandHint').textContent;
+      f.reset(); document.querySelector('#refsModal [data-close]').click();
+      location.hash = '#analytics'; await new Promise((r) => setTimeout(r, 300));
+      return out;`);
+    check('марки: значок біля номера в рейсах, аналітиці й довіднику, підказка у формі', logos.analytics > 0 && logos.trips > 0 && logos.titles.includes('MAN') && logos.titles.includes('Renault') && logos.refs === 2 && /Mercedes-Benz/.test(logos.hint) && /не розпізнано/.test(logos.hint2), logos);
+    check('аналітика: міста з маршрутів і рейти рейсів', an.cities.includes('Київ') && an.cities.includes('Львів') && an.ranked >= 3 && an.plates === an.ranked, an);
+
     // ===== Безпека: зловмисна «резервна копія» =====
     await open('#settle');
     await ev(`
-      const data = { trips: [{ id: '"><img src=x onerror=window.__xss=2>', startDate: '<img src=x onerror=window.__xss=3>', customer: '<img src=x onerror=window.__xss=9>', payStatus: 'waiting', payDue: '<img src=x onerror=window.__xss=10>', managed: true, ownerName: '<img src=x onerror=window.__xss=4>', driverName: '<img src=x onerror=window.__xss=5>' }],
+      const data = { trips: [{ id: '"><img src=x onerror=window.__xss=2>', startDate: '<img src=x onerror=window.__xss=3>', customer: '<img src=x onerror=window.__xss=9>', route: '<img src=x onerror=window.__xss=15> → <svg onload=window.__xss=16>', payStatus: 'waiting', payDue: '<img src=x onerror=window.__xss=10>', managed: true, ownerName: '<img src=x onerror=window.__xss=4>', driverName: '<img src=x onerror=window.__xss=5>' }],
         settings: { payouts: [{ id: 'z', kind: 'driver', party: '"><img src=x onerror=window.__xss=6>', name: '<b>x</b>', date: '<img src=x onerror=window.__xss=7>', amount: 'abc' }],
                     carBlocks: [{ id: 'q', carId: 'c1', from: '2026-11-01', to: '2026-11-02', note: '<img src=x onerror=window.__xss=13>' }, { id: '"><img src=x onerror=window.__xss=14>', carId: 'c1', from: 'x', to: 'y' }],
                     expenses: [{ id: 'y', date: '2026-10-01', category: '<img src=x onerror=window.__xss=8>', amount: 5 }, { id: 'bad', date: 'zzz', amount: 9 }] } };
       const file = new File([JSON.stringify(data)], 'b.json', { type: 'application/json' }); const dt = new DataTransfer(); dt.items.add(file);
       const inp = document.querySelector('#importFile'); inp.files = dt.files; inp.dispatchEvent(new Event('change'));`);
     await sleep(600);
-    for (const h of ['', '#trips', '#settle', '#expenses']) { await go(h); for (const t of ['owners', 'partner', 'drivers', 'customers']) { if (h === '#settle') { await ev(`document.querySelector('[data-settle-tab="${t}"]').click()`); await sleep(150); } } }
+    for (const h of ['', '#trips', '#settle', '#expenses', '#analytics']) { await go(h); for (const t of ['owners', 'partner', 'drivers', 'customers']) { if (h === '#settle') { await ev(`document.querySelector('[data-settle-tab="${t}"]').click()`); await sleep(150); } } }
     await ev(`let html = ''; const real = window.open; window.open = () => ({ document: { open() {}, write(h) { html += h; }, close() {} } }); document.querySelector('[data-action="report-pdf"]').click(); window.open = real;`);
     check('безпека: код з підсунутого файлу не виконався', await ev(`return window.__xss === undefined`), await ev(`return String(window.__xss)`));
     check('безпека: зіпсований запис витрат відкинуто', await ev(`return Cloud._cache.settings.expenses.length === 1`));

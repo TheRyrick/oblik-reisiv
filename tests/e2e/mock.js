@@ -47,5 +47,5 @@
   document.documentElement.classList.remove('auth-locked');
   // Привітання навчалки не заважає іншим перевіркам (окремо тестується через Guide.welcome)
   try { localStorage.setItem('oblik.guide.v1', 'seen'); } catch (e) { /* без сховища */ }
-  (async () => { for (const s of ['js/calc.js', 'js/report.js', 'js/app.js', 'js/fx.js', 'js/guide.js']) await load(s); window.__ready = true; })();
+  (async () => { for (const s of ['js/calc.js', 'js/brands.js', 'js/report.js', 'js/app.js', 'js/fx.js', 'js/guide.js']) await load(s); window.__ready = true; })();
 })();

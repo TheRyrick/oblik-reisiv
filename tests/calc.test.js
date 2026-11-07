@@ -405,3 +405,129 @@ test('борги по рядках оплат: лише не отримані, �
   assert.match(txt, /рейс 01\.10\.2026 — 1 000 ₴ \(№3, безнал, по оригиналам\), чекаємо 32 дн\./);
   assert.doesNotMatch(txt, /Гама/, 'свіжий борг не турбує');
 });
+
+// ---------- Аналітика ----------
+test('аналітика: міста з маршруту — різні роздільники, дефісні назви, без повторів', () => {
+  const names = (r) => C.splitRoute(r).map((x) => x.name);
+  assert.deepEqual(names('Дніпро → Одеса → Київ'), ['Дніпро', 'Одеса', 'Київ']);
+  assert.deepEqual(names('Київ-Львів'), ['Київ', 'Львів']);
+  assert.deepEqual(names('київ - львів - київ'), ['Київ', 'Львів']);
+  assert.deepEqual(names('Івано-Франківськ-Львів'), ['Івано-Франківськ', 'Львів']);
+  assert.deepEqual(names('м. Кам’янець-Подільський, с.Петрівка / Ростов-на-Дону'), ['Кам’янець-Подільський', 'Петрівка', 'Ростов-на-Дону']);
+  assert.deepEqual(names('Київ–Варшава (митниця Ягодин)'), ['Київ', 'Варшава']);
+  assert.deepEqual(names(''), []);
+  assert.deepEqual(names(undefined), []);
+});
+
+test('аналітика: замовник — без лапок, ТОВ/ФОП і регістру', () => {
+  assert.equal(C.customerKey('ТОВ «Агро-Схід»'), 'агро-схід');
+  assert.equal(C.customerKey('агро-схід'), 'агро-схід');
+  assert.equal(C.customerKey('Ромашка, ТОВ'), 'ромашка');
+  assert.equal(C.customerKey('ФОП Іваненко'), 'іваненко');
+  assert.equal(C.customerKey('  '), '');
+});
+
+test('аналітика: замовники, міста, рейти і дні очікування оплати', () => {
+  const trips = [
+    trip({ id: 'a', customer: 'ТОВ «Ромашка»', route: 'Київ → Львів' }),
+    trip({ id: 'b', customer: 'ромашка', route: 'Львів → Одеса', startDate: '2026-10-10', endDate: '2026-10-12', bank: 30000, cash: 0,
+      payments: [{ id: 'p', amount: 30000, method: 'bank', received: true, waited: true, receivedDate: '2026-10-22' }] }),
+    trip({ id: 'c', customer: 'Агро', route: 'Одеса-Київ', payments: [{ id: 'q', amount: 60000, method: 'bank', received: false }] }),
+    trip({ id: 'd', route: '' }),
+  ];
+  const A = C.analytics(trips, {});
+  assert.equal(A.customers.length, 2);
+  const rom = A.customers.find((x) => x.key === 'ромашка');
+  assert.equal(rom.count, 2);
+  assert.equal(rom.name, 'ТОВ «Ромашка»');
+  // 30 000 чекали 10 днів, 60 000 (рейс без рядків оплат) — одразу → середнє зважене 30000*10/90000
+  near(rom.payDays, 3.33);
+  assert.equal(A.customers.find((x) => x.key === 'агро').waiting, 60000);
+  assert.equal(A.noCustomer, 1);
+  assert.equal(A.noRoute, 1);
+  const kyiv = A.cities.find((x) => x.key === 'київ');
+  assert.equal(kyiv.count, 2);
+  assert.equal(A.ranked.length, 4);
+  assert.ok(A.ranked[0].perDay >= A.ranked[3].perDay);
+});
+
+test('«Чи брати вантаж?»: вердикт, мінімальна ставка, порожні км', () => {
+  const trips = [trip({ id: 'a', carId: 'c1' }), trip({ id: 'b', carId: 'c1', startDate: '2026-10-05', endDate: '2026-10-07' })];
+  const B = C.loadBaseline(trips, { monthlyExpenses: 0 }, [], '2026-10-20', 'c1');
+  assert.equal(B.fuelPer100, 30);
+  assert.equal(B.kmPerDay, 500);
+  assert.equal(B.repairPerKm, 2);
+  assert.ok(B.profitPerDay > 0);
+  // Такий самий рейс, як звичайні, — «вигідно» і приблизно середній прибуток
+  const same = C.quoteLoad({ price: 60000, pay: 'bank', km: 1000, days: 2 }, B, {});
+  assert.equal(same.verdict, 'good');
+  // (у базових рейсах 10 000 готівкою — без податку, тому тут трохи менше)
+  assert.ok(Math.abs(same.perDay - B.profitPerDay) < B.profitPerDay * 0.1, `${same.perDay} vs ${B.profitPerDay}`);
+  // Копійки — збиток, а мінімальна ставка дає ≥ 0 вам, і на 100 ₴ менше — вже мінус
+  const cheap = C.quoteLoad({ price: 8000, pay: 'bank', km: 1000, days: 2 }, B, {});
+  assert.equal(cheap.verdict, 'loss');
+  assert.ok(cheap.breakEven > 8000);
+  assert.ok(C.quoteLoad({ price: cheap.breakEven, pay: 'bank', km: 1000, days: 2 }, B, {}).ownerProfit >= 0);
+  assert.ok(C.quoteLoad({ price: cheap.breakEven - 100, pay: 'bank', km: 1000, days: 2 }, B, {}).ownerProfit < 0);
+  // Порожні км палять паливо — прибуток менший; доби рахуються самі з темпу
+  const empty = C.quoteLoad({ price: 60000, pay: 'bank', km: 1000, emptyKm: 300 }, B, {});
+  assert.equal(empty.days, 3);
+  assert.equal(empty.liters, 390);
+  assert.ok(empty.ownerProfit < same.ownerProfit);
+  // Готівка — без податку, тож вигідніше за безнал
+  assert.ok(C.quoteLoad({ price: 60000, pay: 'cash', km: 1000, days: 2 }, B, {}).ownerProfit > same.ownerProfit);
+  // Без історії — не падає
+  const none = C.quoteLoad({ price: 1000, km: 100 }, C.loadBaseline([], {}, [], '2026-10-20'), {});
+  assert.equal(none.days, 1);
+});
+
+test('«Чи брати вантаж?»: кілька замовлень в одну машину — сума ставок, м³ і кг', () => {
+  const B = C.loadBaseline([trip({ id: 'a' })], {}, [], '2026-10-20');
+  const car = { volume: 86, capacityKg: 20000 };
+  const orders = [
+    { price: 30000, pay: 'bank', volume: 30, kg: 6000 },
+    { price: 20000, pay: 'cash', volume: 25, kg: 5000 },
+    { price: 10000, pay: 'bank', volume: 15, kg: 3000 },
+  ];
+  const Q = C.quoteLoad({ orders, km: 1000, days: 2, car }, B, {});
+  assert.equal(Q.price, 60000);
+  assert.equal(Q.orders, 3);
+  assert.equal(Q.calc.bank, 40000);
+  assert.equal(Q.calc.cash, 20000);
+  near(Q.calc.tax, 3200); // 8% лише з безналу
+  assert.equal(Q.load.volume, 70);
+  assert.equal(Q.load.kg, 14000);
+  assert.equal(Q.load.freeVol, 16);
+  assert.equal(Q.load.over, false);
+  // Те саме, що одне замовлення на ту ж суму з тією ж сумішшю оплат
+  const one = C.quoteLoad({ price: 60000, pay: 'bank', km: 1000, days: 2 }, B, {});
+  assert.ok(Q.ownerProfit > one.ownerProfit); // 20 000 готівкою — без податку
+  // Не влазить по обʼєму і по вазі
+  const big = C.quoteLoad({ orders: [...orders, { price: 5000, volume: 20, kg: 7000 }], km: 1000, car }, B, {});
+  assert.equal(big.load.overVol, true);
+  assert.equal(big.load.overKg, true);
+  assert.equal(big.load.freeVol, -4);
+  // Мінімальна ставка зберігає суміш оплат: на ній вам ≥ 0
+  const cheap = C.quoteLoad({ orders: [{ price: 3000, pay: 'cash' }, { price: 3000, pay: 'bank' }], km: 1000, days: 2 }, B, {});
+  assert.equal(cheap.verdict, 'loss');
+  const k = cheap.breakEven / 6000;
+  assert.ok(C.quoteLoad({ orders: [{ price: 3000 * k, pay: 'cash' }, { price: 3000 * k, pay: 'bank' }], km: 1000, days: 2 }, B, {}).ownerProfit >= 0);
+  // Без авто — завантаження не перевіряємо, але й не падаємо
+  assert.equal(C.quoteLoad({ orders, km: 100 }, B, {}).load.volPct, null);
+});
+
+test('марки авто: розпізнаємо за маркою і моделлю, укр/рос/лат', () => {
+  const Brands = require('../js/brands.js');
+  const t = (s) => (Brands.detect(s) || {}).key || null;
+  assert.equal(t('MAN TGX 18.440'), 'man');
+  assert.equal(t('Мерседес Спринтер'), 'mercedes');
+  assert.equal(t('Sprinter 316'), 'mercedes');
+  assert.equal(t('DAF XF 105'), 'daf');
+  assert.equal(t('фольксваген крафтер'), 'volkswagen');
+  assert.equal(t('Renault Master'), 'renault');
+  assert.equal(t('Камаз 5320'), 'kamaz');
+  assert.equal(t('Невідома марка'), null);
+  assert.equal(t(''), null);
+  // Значки — лише безпечні SVG-шляхи (без тегів і лапок)
+  for (const b of Object.values(Brands.LIST)) if (b.d) assert.match(b.d, /^[MmZzLlHhVvCcSsQqTtAaEe0-9.,\s-]+$/);
+});
