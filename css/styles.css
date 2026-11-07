@@ -189,7 +189,9 @@ select.input { cursor: pointer; }
 .bottom-nav {
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 35;
   display: grid; grid-template-columns: repeat(5, 1fr); align-items: end;
-  padding: .35rem .5rem calc(.4rem + env(safe-area-inset-bottom));
+  /* Знизу — смужка ~4.75rem під плашку хостингу «Powered by Netlify» (вона фіксована
+     справа знизу і закривала праві кнопки меню). Кнопки стоять над нею. */
+  padding: .35rem .5rem calc(4.75rem + env(safe-area-inset-bottom));
   background: rgba(34, 40, 48, .97); border-top: 1px solid var(--line-strong);
   backdrop-filter: blur(10px);
 }
@@ -197,7 +199,7 @@ select.input { cursor: pointer; }
 
 /* Запас унизу сторінки, щоб плашка хостингу «Powered by Netlify» (кутик справа знизу)
    не перекривала кнопки в останніх рядках: можна догорнути так, що вони будуть вище неї. */
-main.app-container { padding-bottom: 10rem; }
+main.app-container { padding-bottom: 12rem; }
 @media (min-width: 768px) { main.app-container { padding-bottom: 6rem; } }
 .bn-item {
   display: flex; flex-direction: column; align-items: center; gap: .2rem; padding: .35rem 0;
@@ -257,7 +259,7 @@ main.app-container { padding-bottom: 10rem; }
 .bar > i { display: block; height: 100%; border-radius: inherit; transition: width .5s ease; }
 
 /* ---------- Тости ---------- */
-#toasts { bottom: calc(5.5rem + env(safe-area-inset-bottom)); }
+#toasts { bottom: calc(9.75rem + env(safe-area-inset-bottom)); }
 @media (min-width: 768px) { #toasts { bottom: 1rem; } }
 .toast {
   pointer-events: auto; display: flex; align-items: center; gap: .6rem; padding: .75rem 1rem;
