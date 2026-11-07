@@ -728,3 +728,47 @@ main.app-container { padding-bottom: 12rem; }
 .pay-chip:hover { filter: brightness(1.15); }
 .wait-badge { background: rgba(239,186,24,.14) !important; color: #f5c94a !important; }
 .order-text { margin-top: .6rem; padding: .8rem; border-radius: var(--r-md); background: rgba(0,0,0,.25); white-space: pre-wrap; word-break: break-word; font: .8rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; color: #cfd2d4; max-height: 22rem; overflow: auto; }
+
+/* ---------- Навчалка: довідка і тури (js/guide.js) ---------- */
+.help-roles { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: .4rem; padding: .3rem; border-radius: var(--r-lg); background: rgba(0,0,0,.2); border: 1px solid var(--line); }
+.help-role { display: flex; flex-direction: column; align-items: center; gap: .3rem; padding: .7rem .4rem; border-radius: .7rem; font-size: .85rem; font-weight: 500; color: var(--muted); text-align: center; transition: background .15s, color .15s; }
+.help-role:hover { color: var(--chalk); background: rgba(242,240,234,.05); }
+.help-role.is-active { color: var(--chalk); background: var(--surface); box-shadow: inset 0 0 0 1px var(--line-strong), inset 0 -2px 0 var(--signal); }
+.help-role.is-active .ic { color: var(--signal); }
+.help-tour { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem; border-radius: var(--r-md); border: 1px solid rgba(239,186,24,.35); background: rgba(239,186,24,.07); }
+@media (max-width: 420px) { .help-tour { flex-direction: column; align-items: stretch; } }
+.help-faq { display: grid; gap: .4rem; }
+.help-q { border: 1px solid var(--line); border-radius: var(--r-md); background: rgba(242,240,234,.02); }
+.help-q > summary { display: flex; align-items: center; justify-content: space-between; gap: .75rem; padding: .75rem .9rem; cursor: pointer; list-style: none; font-size: .9rem; font-weight: 500; color: var(--chalk); }
+.help-q > summary::-webkit-details-marker { display: none; }
+.help-q > summary .ic { color: var(--muted); transition: transform .2s; flex-shrink: 0; }
+.help-q[open] > summary .ic { transform: rotate(180deg); }
+.help-a { padding: 0 .9rem .9rem; font-size: .875rem; line-height: 1.6; color: #c9ccce; }
+.help-a ol, .help-a ul { margin: .35rem 0; padding-left: 1.2rem; display: grid; gap: .25rem; }
+.help-a ol { list-style: decimal; }
+.help-a ul { list-style: disc; }
+.help-a b, .tour-text b { color: var(--chalk); font-weight: 600; }
+
+.tour-root { position: fixed; inset: 0; z-index: 70; }
+.tour-spot { position: fixed; border-radius: var(--r-md); box-shadow: 0 0 0 9999px rgba(8, 10, 13, .72); outline: 2px solid var(--signal); outline-offset: 2px; pointer-events: none; transition: top .25s ease, left .25s ease, width .25s ease, height .25s ease; }
+.tour-spot.hidden { display: none; }
+.tour-root:has(.tour-spot.hidden) { background: rgba(8, 10, 13, .72); }
+.tour-card, .tour-welcome { position: fixed; width: min(24rem, calc(100vw - 2rem)); padding: 1rem 1.1rem; border-radius: var(--r-lg); background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 0 24px 60px -12px rgba(0,0,0,.7); color: var(--chalk); animation: fade .2s ease; }
+.tour-card.is-center { left: 50% !important; top: 50% !important; transform: translate(-50%, -50%); }
+.tour-card.is-sheet, .tour-card.is-sheet-top { left: 1rem !important; right: 1rem; width: auto; }
+.tour-card.is-sheet { top: auto !important; bottom: calc(1rem + env(safe-area-inset-bottom)); }
+.tour-card.is-sheet-top { top: calc(.75rem + env(safe-area-inset-top)) !important; }
+.tour-head { display: flex; align-items: center; justify-content: space-between; gap: .5rem; margin: -.3rem -.4rem .2rem 0; }
+.tour-count { font-size: .72rem; font-weight: 500; letter-spacing: .02em; color: var(--muted); }
+.tour-x { width: 2rem; height: 2rem; }
+.tour-title { font-size: 1.05rem; font-weight: 700; color: var(--chalk); margin-bottom: .35rem; }
+.tour-text { font-size: .9rem; line-height: 1.55; color: #c9ccce; }
+.tour-bar { height: 3px; margin: .9rem 0 .8rem; border-radius: 3px; background: rgba(242,240,234,.08); overflow: hidden; }
+.tour-bar > span { display: block; height: 100%; background: var(--signal); transition: width .25s ease; }
+.tour-actions { display: flex; justify-content: space-between; gap: .5rem; }
+.tour-welcome { right: 1rem; bottom: 1rem; z-index: 45; display: grid; gap: .6rem; }
+.tour-welcome .tour-x { position: absolute; top: .5rem; right: .5rem; }
+.tour-later { font-size: .78rem; color: var(--muted); text-decoration: underline; text-underline-offset: 3px; justify-self: start; }
+.tour-later:hover { color: var(--chalk); }
+@media (max-width: 767px) { .tour-welcome { left: 1rem; right: 1rem; width: auto; bottom: calc(10rem + env(safe-area-inset-bottom)); } }
+@media (prefers-reduced-motion: reduce) { .tour-spot, .tour-bar > span { transition: none; } .tour-card, .tour-welcome { animation: none; } }

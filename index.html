@@ -57,6 +57,9 @@
 
       <div class="ml-auto flex items-center gap-2">
         <span id="syncStatus" class="grid h-8 w-8 place-items-center" title="Синхронізація"></span>
+        <button id="helpBtn" type="button" class="btn-ghost" title="Довідка та навчання" aria-label="Довідка та навчання">
+          <i data-lucide="help-circle" class="h-4 w-4"></i><span class="hidden lg:inline">Довідка</span>
+        </button>
         <div class="relative" id="menuWrap">
           <button id="menuBtn" class="btn-ghost" title="Дані">
             <i data-lucide="database" class="h-4 w-4"></i><span class="hidden md:inline">Дані</span>
@@ -73,6 +76,8 @@
             <div class="my-1 h-px bg-white/5"></div>
             <button data-action="demo" class="dropdown-item"><i data-lucide="sparkles" class="h-4 w-4"></i>Додати демо-рейси</button>
             <button data-action="clear" class="dropdown-item text-rose-300 hover:!bg-rose-500/10"><i data-lucide="trash-2" class="h-4 w-4"></i>Видалити всі дані</button>
+            <div class="my-1 h-px bg-white/5"></div>
+            <button data-action="help" class="dropdown-item"><i data-lucide="help-circle" class="h-4 w-4"></i>Довідка та навчання</button>
             <div class="my-1 h-px bg-white/5"></div>
             <div id="userEmail" class="truncate px-3 py-1 text-xs text-slate-500"></div>
             <button id="logoutBtn" type="button" class="dropdown-item"><i data-lucide="log-out" class="h-4 w-4"></i>Вийти</button>

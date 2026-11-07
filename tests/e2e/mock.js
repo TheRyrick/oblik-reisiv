@@ -45,5 +45,7 @@
   window.confirm = () => true;
   const load = (src) => new Promise((res, rej) => { const s = document.createElement('script'); s.src = src; s.onload = res; s.onerror = rej; document.body.appendChild(s); });
   document.documentElement.classList.remove('auth-locked');
-  (async () => { for (const s of ['js/calc.js', 'js/report.js', 'js/app.js', 'js/fx.js']) await load(s); window.__ready = true; })();
+  // Привітання навчалки не заважає іншим перевіркам (окремо тестується через Guide.welcome)
+  try { localStorage.setItem('oblik.guide.v1', 'seen'); } catch (e) { /* без сховища */ }
+  (async () => { for (const s of ['js/calc.js', 'js/report.js', 'js/app.js', 'js/fx.js', 'js/guide.js']) await load(s); window.__ready = true; })();
 })();

@@ -363,6 +363,42 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
     for (const h of ['', '#trips', '#settle', '#expenses', '']) { await go(h); pos.push(await ev(`return ['#addTripBtn', '#settingsBtn', '#menuBtn', '.brand'].map((s) => Math.round(document.querySelector(s).getBoundingClientRect().left)).join(',')`)); }
     check('шапка: кнопки на місці на всіх вкладках', new Set(pos).size === 1, pos);
 
+    // ===== Навчалка: довідка і тури =====
+    const runTour = async (key, label) => {
+      await ev(`Guide.start(${JSON.stringify(key)})`); await sleep(450);
+      const seen = []; const missing = [];
+      for (let k = 0; k < 40; k++) {
+        const a = await ev(`return Guide.active`);
+        if (!a) break;
+        seen.push(a.i);
+        if (a.need && !a.target) missing.push(a.title);
+        if (k === 3 || (key === 'driver' && k === 4)) await shot(`12-tour-${key}-${label}-${k}`);
+        await ev(`document.querySelector('.tour-card [data-tour="next"]').click()`); await sleep(450);
+      }
+      const after = await ev(`return { active: !!Guide.active, root: !!document.querySelector('.tour-root'), trip: !document.querySelector('#tripModal').classList.contains('hidden'), hash: location.hash, overflow: document.body.style.overflow }`);
+      check(`тур «${key}» (${label}): пройдено до кінця, усе підсвічено, екран повернуто`, seen.length > 3 && !missing.length && !after.active && !after.root && !after.trip && (after.hash === '' || after.hash === '#') && after.overflow === '', { seen, missing, after });
+    };
+    await go('');
+    await ev(`document.querySelector('#helpBtn').click()`); await sleep(250);
+    const help = await ev(`
+      const out = { open: !document.querySelector('#helpModal').classList.contains('hidden'), faq: {} };
+      for (const r of ['owner', 'partner', 'driver']) { document.querySelector('[data-help-role="' + r + '"]').click(); out.faq[r] = document.querySelectorAll('#helpBody .help-q').length; }
+      document.querySelector('[data-help-role="owner"]').click();
+      return out;`);
+    check('довідка: відкривається, у кожного розділу є питання', help.open && help.faq.owner >= 5 && help.faq.partner >= 3 && help.faq.driver >= 5, help);
+    await shot('12-help');
+    await ev(`document.querySelector('#helpBody [data-start-tour="owner"]').click()`); await sleep(400);
+    check('довідка: кнопка «Почати» закриває довідку і запускає тур', await ev(`return document.querySelector('#helpModal').classList.contains('hidden') && Guide.active && Guide.active.key === 'owner'`));
+    await ev(`Guide.end()`); await sleep(200);
+    for (const key of ['owner', 'partner', 'driver']) await runTour(key, 'пк');
+    await viewport(390, 844, true);
+    for (const key of ['owner', 'partner', 'driver']) await runTour(key, 'телефон');
+    await ev(`try { localStorage.removeItem('oblik.guide.v1'); } catch (e) {} Guide.welcome()`); await sleep(250);
+    await shot('12-welcome-phone');
+    await ev(`document.querySelector('.tour-welcome [data-w="later"]').click()`); await sleep(150);
+    check('привітання: зʼявляється один раз і закривається', await ev(`return !document.querySelector('.tour-welcome') && localStorage.getItem('oblik.guide.v1') === 'seen'`));
+    await viewport(1400, 1000);
+
     // ===== Телефон: нічого не вилазить за екран =====
     await viewport(390, 844, true);
     for (const h of ['', '#trips', '#settle', '#expenses']) {
