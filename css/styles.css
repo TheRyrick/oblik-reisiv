@@ -194,6 +194,11 @@ select.input { cursor: pointer; }
   backdrop-filter: blur(10px);
 }
 @media (min-width: 768px) { .bottom-nav { display: none; } }
+
+/* Запас унизу сторінки, щоб плашка хостингу «Powered by Netlify» (кутик справа знизу)
+   не перекривала кнопки в останніх рядках: можна догорнути так, що вони будуть вище неї. */
+main.app-container { padding-bottom: 10rem; }
+@media (min-width: 768px) { main.app-container { padding-bottom: 6rem; } }
 .bn-item {
   display: flex; flex-direction: column; align-items: center; gap: .2rem; padding: .35rem 0;
   font-size: .7rem; font-weight: 500; color: var(--muted); border-radius: var(--r-sm);
