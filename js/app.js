@@ -194,6 +194,14 @@
     if (filter.kind === 'own') extra.push('мої авто');
     if (filter.kind === 'managed') extra.push('авто в управлінні');
     $('#periodLabel').textContent = [label, ...extra].join(' · ');
+
+    // Скільки фільтрів увімкнено — видно на кнопці «Фільтри» (телефон)
+    const active = ['year', 'month', 'driver', 'car', 'kind'].filter((k) => filter[k] !== 'all').length;
+    $('#filtersCount').textContent = active;
+    $('#filtersCount').classList.toggle('hidden', !active);
+    // Демо-рейси потрібні лише на старті — коли є свої рейси, пункт меню лише заважає
+    const demoItem = $('#menu [data-action="demo"]');
+    if (demoItem) demoItem.hidden = trips.length > 0;
   }
 
   // ---------- KPI ----------
@@ -2131,6 +2139,14 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
   function updatePreview() {
     const d = readForm();
     const c = calcTrip(d, settings);
+    // Поки сум немає — замість стовпчика мінусів показуємо, що робити
+    if (!c.received && !c.freight) {
+      $('#preview').innerHTML = `<div class="preview-empty">
+        <div>Тут одразу зʼявиться <b>ЗП водія, логіста і ваш прибуток</b>.</div>
+        <div>Впишіть суму фрахту у формі — або вставте заявку з Телеграму в перше поле, і сайт заповнить усе сам.</div>
+      </div>`;
+      return;
+    }
     const row = (label, value, cls = '') => `<div class="preview-row"><dt>${label}</dt><dd class="${cls}">${value}</dd></div>`;
     $('#preview').innerHTML = [
       row('Діб у рейсі', c.days),
@@ -3387,6 +3403,19 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     $('#chartLegend').classList.toggle('hidden', table);
     $('#chartTable').classList.toggle('hidden', !table);
     refreshIcons();
+  });
+
+  // Телефон: фільтри розгортаються однією кнопкою
+  $('#filtersToggle').addEventListener('click', (e) => {
+    const open = $('#filtersBox').classList.toggle('is-open');
+    e.currentTarget.setAttribute('aria-expanded', String(open));
+  });
+
+  // «Усі показники за період»: згорнуті за замовчуванням, стан запамʼятовується
+  const MORE_KEY = 'oblik.ui.kpisMore';
+  try { if (localStorage.getItem(MORE_KEY) === 'open') $('#kpisMore').open = true; } catch (e) { /* приватний режим */ }
+  $('#kpisMore').addEventListener('toggle', (e) => {
+    try { localStorage.setItem(MORE_KEY, e.currentTarget.open ? 'open' : 'closed'); } catch (err) { /* приватний режим */ }
   });
 
   // ---------- Події ----------

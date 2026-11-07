@@ -775,3 +775,35 @@ main.app-container { padding-bottom: 12rem; }
 .tour-later:hover { color: var(--chalk); }
 @media (max-width: 767px) { .tour-welcome { left: 1rem; right: 1rem; width: auto; bottom: calc(10rem + env(safe-area-inset-bottom)); } }
 @media (prefers-reduced-motion: reduce) { .tour-spot, .tour-bar > span { transition: none; } .tour-card, .tour-welcome { animation: none; } }
+/* ---------- Зручність: згорнуті показники, фільтри на телефоні, підказка в розрахунку ---------- */
+.kpis-more { border: 1px solid var(--line); border-radius: var(--r-md); background-color: rgba(34, 40, 48, .55); padding: .2rem 1rem; }
+.kpis-more[open] { padding-bottom: 1rem; }
+.kpis-more > summary { list-style: none; display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 3rem; cursor: pointer; }
+.kpis-more > summary::-webkit-details-marker { display: none; }
+.kpis-more > summary:focus-visible { outline: 2px solid var(--signal); outline-offset: 4px; border-radius: var(--r-sm); }
+.kpis-more-title { display: flex; align-items: center; gap: .5rem; font-size: .95rem; font-weight: 600; color: var(--chalk); }
+.kpis-more-title > i, .kpis-more-title > .ph, .kpis-more-title > .ph-duotone { color: var(--signal); }
+.kpis-more-hint { display: flex; align-items: center; gap: .4rem; font-size: .8rem; color: var(--muted); text-align: right; }
+.kpis-more > summary:hover .kpis-more-hint { color: var(--chalk); }
+.kpis-more-caret { transition: transform .2s ease; flex-shrink: 0; }
+.kpis-more[open] .kpis-more-caret { transform: rotate(180deg); }
+.kpis-more .when-open, .kpis-more[open] .when-closed { display: none; }
+.kpis-more[open] .when-open { display: inline; }
+@media (max-width: 480px) { .kpis-more .when-closed { display: none; } }
+
+.filters-toggle { display: none; }
+@media (max-width: 639px) {
+  .filters-toggle {
+    display: flex; align-items: center; gap: .5rem; width: 100%; min-height: 2.75rem; padding: 0 .9rem;
+    background: rgba(34, 40, 48, .78); border: 1px solid var(--line); border-radius: var(--r-sm);
+    font-size: .9rem; font-weight: 500; color: var(--chalk);
+  }
+  .filters-toggle .filters-caret { margin-left: auto; transition: transform .2s ease; }
+  .filters-toggle[aria-expanded="true"] .filters-caret { transform: rotate(180deg); }
+  #filtersBox:not(.is-open) { display: none; }
+}
+.filters-count { min-width: 1.35rem; height: 1.35rem; padding: 0 .35rem; border-radius: 999px; background: var(--signal); color: var(--signal-ink); font-size: .75rem; font-weight: 700; display: inline-grid; place-items: center; }
+.filters-count.hidden { display: none; }
+
+.preview-empty { display: grid; gap: .5rem; padding: 1rem; border-radius: var(--r-md); border: 1px dashed var(--line-strong); color: var(--muted); font-size: .875rem; line-height: 1.5; }
+.preview-empty b { color: var(--chalk); font-weight: 600; }

@@ -93,7 +93,7 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
       const groups = s.fuelCost + s.tax + s.sto + s.repair + s.other + s.monthlyExpenses + s.driverPay + s.logistPay + s.perDiem + s.partnerShare + s.carOwnerShare + s.ownerProfit;
       return { freight: s.freight, groups, net: s.netProfit, biz: s.monthlyExpenses,
         netShown: document.querySelector('[data-kpi="net"] .kpi-value').innerText,
-        bizShown: document.querySelector('[data-kpi="monthly"] .kpi-value').innerText,
+        bizShown: document.querySelector('[data-kpi="monthly"] .kpi-value').textContent,
         reminders: document.querySelector('#reminders').innerText,
         carStatsVisible: !document.querySelector('#carStatsSection').classList.contains('hidden'),
         carRows: [...document.querySelectorAll('#carStats tbody tr')].map((r) => r.querySelector('.plate-num')?.innerText) };`);
@@ -435,7 +435,47 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
       check(`телефон ${h || '#dashboard'}: без горизонтальної прокрутки`, over <= 1, over);
       await shot('07-mobile-' + (h.slice(1) || 'dashboard'));
     }
+    // Телефон: фільтри сховані за кнопкою, лічильник показує, скільки увімкнено
+    await go('');
+    const ft = await ev(`
+      const box = document.querySelector('#filtersBox'), btn = document.querySelector('#filtersToggle');
+      const vis = () => box.getBoundingClientRect().height > 0;
+      const out = { hiddenAtStart: !vis(), btnVisible: btn.getBoundingClientRect().height > 0 };
+      btn.click(); out.openAfterClick = vis() && btn.getAttribute('aria-expanded') === 'true';
+      const y = document.querySelector('#yearFilter'); y.value = y.options[1].value; y.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 200));
+      out.count = document.querySelector('#filtersCount').textContent;
+      y.value = 'all'; y.dispatchEvent(new Event('change', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 200));
+      out.countAfterReset = document.querySelector('#filtersCount').classList.contains('hidden');
+      btn.click(); out.closedAgain = !vis();
+      return out;`);
+    check('телефон: фільтри за кнопкою, лічильник увімкнених', ft.hiddenAtStart && ft.btnVisible && ft.openAfterClick && ft.count === '1' && ft.countAfterReset && ft.closedAgain, ft);
     await viewport(1400, 1000);
+    await go('');
+    // ПК: кнопки «Фільтри» немає; «Усі показники» згорнуті, відкриваються і стан запамʼятовується
+    const more = await ev(`
+      const d = document.querySelector('#kpisMore');
+      const out = { toggleHidden: document.querySelector('#filtersToggle').getBoundingClientRect().height === 0, filtersVisible: document.querySelector('#filtersBox').getBoundingClientRect().height > 0, closed: !d.open, tiles: d.querySelectorAll('.kpi').length };
+      d.querySelector('summary').click(); await new Promise((r) => setTimeout(r, 50));
+      out.opened = d.open && document.querySelector('#kpis').getBoundingClientRect().height > 100;
+      out.saved = localStorage.getItem('oblik.ui.kpisMore');
+      d.querySelector('summary').click(); await new Promise((r) => setTimeout(r, 50));
+      out.savedClosed = localStorage.getItem('oblik.ui.kpisMore');
+      out.kpiFirst = document.querySelector('#kpiMain').getBoundingClientRect().top < document.querySelector('#dashExtra').getBoundingClientRect().top;
+      return out;`);
+    check('панель: головні цифри зверху, «Усі показники» згорнуті й запамʼятовуються', more.toggleHidden && more.filtersVisible && more.closed && more.tiles >= 10 && more.opened && more.saved === 'open' && more.savedClosed === 'closed' && more.kpiFirst, more);
+    // Форма рейсу: порожня — підказка замість мінусів; ввели фрахт — розрахунок
+    await ev(`document.querySelector('#addTripBtn').click()`); await sleep(400);
+    const pv = await ev(`
+      const out = { hint: !!document.querySelector('#preview .preview-empty') };
+      const f = document.querySelector('#tripForm [name="cash"]'); f.value = '20000'; f.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((r) => setTimeout(r, 100));
+      out.calc = !document.querySelector('#preview .preview-empty') && /Ваш прибуток/.test(document.querySelector('#preview').textContent);
+      document.querySelector('#tripModal .modal-backdrop').click();
+      return out;`);
+    check('форма рейсу: без сум — підказка, з сумою — розрахунок', pv.hint && pv.calc, pv);
+    await sleep(300);
 
     // ===== Безпека: зловмисна «резервна копія» =====
     await open('#settle');
