@@ -696,3 +696,28 @@ select.input { cursor: pointer; }
 .cal-c button:focus-visible { outline: 2px solid var(--signal); outline-offset: 1px; }
 .cal-c.is-today button { box-shadow: inset 0 0 0 2px var(--signal); }
 .cal-form { display: grid; gap: .6rem; padding: .9rem; border-radius: var(--r-md); border: 1px solid var(--line); background: rgba(242, 240, 234, .02); }
+
+/* ---------- Оплати по рядках ---------- */
+.pay-line { display: grid; grid-template-columns: 1.6rem minmax(5.5rem, 7rem) minmax(6rem, 7.5rem) minmax(0, 1fr) auto auto; align-items: center; gap: .4rem; padding: .35rem .4rem; border-radius: var(--r-md); border: 1px solid var(--line); background: rgba(242,240,234,.02); }
+.pay-line.is-wait { border-color: rgba(239,186,24,.35); background: rgba(239,186,24,.05); }
+.pay-line .input { min-height: 2.25rem; padding-top: .3rem; padding-bottom: .3rem; font-size: .85rem; }
+.pay-no { font-size: .75rem; color: var(--muted); text-align: right; }
+.pay-method.is-guessed { box-shadow: inset 0 0 0 2px rgba(239,186,24,.7); }
+.pay-got { display: inline-flex; align-items: center; gap: .35rem; cursor: pointer; font-size: .78rem; white-space: nowrap; color: var(--muted); padding: 0 .25rem; }
+.pay-got input { width: 1.05rem; height: 1.05rem; accent-color: var(--profit); }
+.pay-line.is-got .pay-got { color: var(--profit); }
+.pay-line.is-wait .pay-got { color: #f5c94a; }
+@media (max-width: 640px) {
+  .pay-line { grid-template-columns: 1.4rem minmax(0, 1fr) minmax(0, 1fr) auto; }
+  .pay-line .pay-note { grid-column: 2 / 4; }
+  .pay-line .pay-got { grid-column: 4; grid-row: 2; }
+  .pay-line .icon-btn { grid-column: 4; grid-row: 1; }
+}
+.input.is-auto { opacity: .8; cursor: not-allowed; background-image: none; }
+.pay-grid { display: grid; gap: .4rem; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); }
+.pay-chip { display: flex; align-items: center; gap: .55rem; padding: .5rem .7rem; border-radius: var(--r-md); border: 1px solid var(--line); font-size: .85rem; transition: background .15s, border-color .15s; }
+.pay-chip.is-got { color: var(--profit); background: rgba(76,195,138,.06); border-color: rgba(76,195,138,.25); }
+.pay-chip.is-wait { color: #f5c94a; background: rgba(239,186,24,.08); border-color: rgba(239,186,24,.4); }
+.pay-chip:hover { filter: brightness(1.15); }
+.wait-badge { background: rgba(239,186,24,.14) !important; color: #f5c94a !important; }
+.order-text { margin-top: .6rem; padding: .8rem; border-radius: var(--r-md); background: rgba(0,0,0,.25); white-space: pre-wrap; word-break: break-word; font: .8rem/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; color: #cfd2d4; max-height: 22rem; overflow: auto; }

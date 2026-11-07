@@ -224,28 +224,79 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
     check('рейс збережено як «під управлінням»', await ev(`const t = Cloud._cache.trips.at(-1); return t.managed === true && t.ownerName === 'Петренко Іван' && t.mgmtShare === 30`));
 
 
-    // ===== Борги замовників =====
+    // ===== Заявка з Телеграму → рядки оплат → борги =====
+    const ORDER = `Днепр - Хмельницкий
+400кг (1.23/1.66/2.27м - 1шт )
+7000грн / на карту
+6000грн / в день выгрузки
+1000грн / по оригиналам
+0962492673 Леся
+груз для <img src=x onerror=window.__xss=11> груп`;
+    const BIG = ['27.10–06.11.2026', '', 'Днепр - Винница - Шептицький - Львов - Одесса - Херсон - Одесса-Бердичев-Кривой-Рог ', '',
+      '1) 13000грн / безнал ', '2) 4300грн / карта ', '3) 8000грн / безнал ', '4) 8000грн / наличка ', '5) 3000грн / карта ', '6) 25000грн / наличка ',
+      '7) 9000грн / безнал ', '8) 8000грн / наличка ', '9) 3000грн / наличка ', '10) 5250грн/ безнал', '11) 3000грн/ на карту ', '12) 7000/наличка',
+      '13) 3200грн/наличка', '14) 4000грн/карта ', '15) 7000грн/наличка', '16) 4500грн/карта', '17) 4500грн/карта', '18) 4000грн/ наличка ',
+      '-300гр/диспетчерских ', '3700грн/касса', '', '18) 5000грн/безнал'].join('\n');
     await go('#trips');
     await ev(`document.querySelector('[data-edit="t1"]').click()`); await sleep(300);
-    const payUi0 = await ev(`return document.querySelector('#payDueWrap').classList.contains('hidden')`);
-    await ev(`const f = document.querySelector('#tripForm'); f.customer.value = '  ТОВ <img src=x onerror=window.__xss=11>  Альфа '; const r = f.querySelector('input[name="payStatus"][value="waiting"]'); r.checked = true; r.dispatchEvent(new Event('input', { bubbles: true }));`); await sleep(100);
-    const payUi1 = await ev(`return !document.querySelector('#payDueWrap').classList.contains('hidden')`);
-    await ev(`const f = document.querySelector('#tripForm'); f.payDue.value = '2026-10-20'; f.requestSubmit()`); await sleep(400);
-    const t1s = await ev(`const t = Cloud._cache.trips.find((x) => x.id === 't1'); return { st: t.payStatus, due: t.payDue, c: t.customer }`);
-    check('рейс: «Чекаємо оплату» показує строк і зберігається', payUi0 && payUi1 && t1s.st === 'waiting' && t1s.due === '2026-10-20' && t1s.c === 'ТОВ <img src=x onerror=window.__xss=11> Альфа', t1s);
-    await ev(`const m = document.querySelector('#viewModal [data-close]'); if (m) m.click()`); await sleep(150);
+    const paste = (txt) => ev(`const r = document.querySelector('#reportInput'); r.value = ${JSON.stringify('X')}.replace('X', ${JSON.stringify(txt)}); r.dispatchEvent(new Event('input', { bubbles: true }));`);
+    await paste(BIG); await sleep(150);
+    const big = await ev(`const f = document.querySelector('#tripForm'); return { n: document.querySelectorAll('#payLines .pay-line').length, wait: document.querySelectorAll('#payLines .pay-line.is-wait').length, s: f.startDate.value, e: f.endDate.value, bank: f.bank.value, cash: f.cash.value, disp: f.dispatch.value, ro: f.cash.readOnly }`);
+    check('звіт за рейс: 19 замовлень окремими рядками, дати, безнал «чекаємо», суми в полях', big.n === 19 && big.wait === 5 && big.s === '2026-10-27' && big.e === '2026-11-06' && big.bank === '40250' && big.cash === '65200' && big.disp === '300' && big.ro, big);
+    await ev(`document.querySelector('#payLines').scrollIntoView({ block: 'start' })`); await shot('07a-big-report');
+    await paste(ORDER); await sleep(150);
+    const ord = await ev(`const f = document.querySelector('#tripForm'); return { n: document.querySelectorAll('#payLines .pay-line').length, wait: document.querySelectorAll('#payLines .pay-line.is-wait').length, guessed: document.querySelectorAll('#payLines .is-guessed').length, card: f.card.value, bank: f.bank.value, cash: f.cash.value, cust: f.customer.value, route: f.route.value, start: f.startDate.value, due: !document.querySelector('#payDueWrap').classList.contains('hidden') }`);
+    check('заявка: 3 рядки (карта отримано, 2 чекаємо), розміри не дата, дата зі звіту не стерлась', ord.n === 3 && ord.wait === 2 && ord.guessed === 2 && ord.card === '7000' && ord.bank === '7000' && ord.cash === '' && ord.route === 'Днепр → Хмельницкий' && ord.start === '2026-10-27' && ord.due, ord);
+    await ev(`document.querySelector('#payLines').scrollIntoView({ block: 'center' })`); await shot('07b-form-pays');
+    await viewport(390, 844, true); await sleep(200); await ev(`document.querySelector('#payLines').scrollIntoView({ block: 'center' })`); await shot('07c-form-pays-mobile');
+    check('телефон: рядки оплат влазять у форму', await ev(`return [...document.querySelectorAll('#payLines .pay-line')].every((r) => r.scrollWidth <= r.clientWidth + 1)`));
+    await viewport(1400, 1000); await sleep(200);
+    // Повертаємо дати рейсу t1 (у заявці дати немає — лишилась зі звіту)
+    await ev(`const f = document.querySelector('#tripForm'); f.startDate.value = '2026-10-01'; f.endDate.value = '2026-10-03';`);
+    // Заявку вставили в «Замовник» — вона розбирається так само
+    await ev(`const f = document.querySelector('#tripForm'); const dt = new DataTransfer(); dt.setData('text/plain', ${JSON.stringify('X')}.replace('X', ${JSON.stringify(BIG)})); f.customer.dispatchEvent(new ClipboardEvent('paste', { clipboardData: dt, bubbles: true, cancelable: true }));`); await sleep(200);
+    const viaCust = await ev(`const f = document.querySelector('#tripForm'); return { n: document.querySelectorAll('#payLines .pay-line').length, cust: f.customer.value, rep: f.querySelector('#reportInput').value.length > 100 }`);
+    check('заявка, вставлена в «Замовник», теж розбирається на 19 замовлень', viaCust.n === 19 && viaCust.rep && !/грн/.test(viaCust.cust), viaCust);
+    await paste(ORDER); await sleep(150);
+    await ev(`document.querySelector('#tripForm').customer.value = ''`);
+    await paste(ORDER); await sleep(150);
+    await ev(`const f = document.querySelector('#tripForm'); f.startDate.value = '2026-10-01'; f.endDate.value = '2026-10-03';`);
+    // Порожній рядок не дає зберегти, потім видаляємо його
+    await ev(`document.querySelector('#payLineAdd').click()`); await sleep(100);
+    await ev(`document.querySelector('#tripForm').requestSubmit()`); await sleep(200);
+    check('рейс: порожній рядок оплати не зберігається', await ev(`return !document.querySelector('#formError').classList.contains('hidden') && !Cloud._cache.trips.find((t) => t.id === 't1').payments`));
+    await ev(`const b = document.querySelectorAll('[data-pay-del]'); b[b.length - 1].click()`); await sleep(100);
+    await ev(`document.querySelector('#tripForm').requestSubmit()`); await sleep(400);
+    const t1s = await ev(`const t = Cloud._cache.trips.find((x) => x.id === 't1'); return { st: t.payStatus, n: t.payments.length, wait: t.payments.filter((p) => !p.received).length, card: t.card, bank: t.bank, cash: t.cash, c: t.customer, txt: (t.orderText || '').slice(0, 20) }`);
+    check('рейс збережено: рядки, суми, замовник, текст заявки', t1s.st === 'waiting' && t1s.n === 3 && t1s.wait === 2 && t1s.card === 7000 && t1s.bank === 7000 && t1s.cash === 0 && /груп/.test(t1s.c) && t1s.txt.startsWith('Днепр'), t1s);
+    const badge = await ev(`return document.querySelector('#tripsTable [data-open="t1"] .wait-badge')?.innerText || ''`);
+    check('список рейсів: значок «чекаємо 7 000»', /7\s?000/.test(badge), badge);
     await go('');
     const dx = await ev(`return document.querySelector('#dashExtra').innerText`);
-    check('панель: блок боргів і прогноз місяця', /Борги замовників/.test(dx) && /60\s?000/.test(dx) && /Прогноз/.test(dx) && /Витрати бізнесу/.test(dx), dx.slice(0, 400));
+    check('панель: «Не оплачено» 7 000 і прогноз', /Не оплачено/.test(dx) && /7\s?000/.test(dx) && /Прогноз/.test(dx), dx.slice(0, 300));
     await shot('08-dash-debts-forecast');
     await go('#settle');
     await ev(`document.querySelector('[data-settle-tab="customers"]').click()`); await sleep(250);
-    const cu = await ev(`const b = document.querySelector('#settleView'); return { text: b.innerText, img: !!b.querySelector('.owner-card img') }`);
-    check('замовники: боржник, сума, прострочка, імʼя як текст', /Альфа/.test(cu.text) && /прострочено/.test(cu.text) && /60\s?000/.test(cu.text) && !cu.img, cu.text.slice(0, 300));
+    const cu = await ev(`const b = document.querySelector('#settleView'); return { text: b.innerText, img: !!b.querySelector('.owner-card img'), rows: b.querySelectorAll('[data-mark-paid]').length }`);
+    check('замовники: 2 рядки, прострочено (понад 14 днів), імʼя як текст', cu.rows === 2 && /по оригиналам/.test(cu.text) && /прострочено/.test(cu.text) && !cu.img, cu.text.slice(0, 300));
     await shot('09-settle-customers');
-    await ev(`document.querySelector('[data-mark-paid="t1"]').click()`); await sleep(300);
-    const paid = await ev(`const t = Cloud._cache.trips.find((x) => x.id === 't1'); return { st: t.payStatus, d: t.paidDate, empty: /нічого не винні/.test(document.querySelector('#settleView').innerText) }`);
-    check('замовники: «Оплачено» закриває борг', paid.st === 'paid' && /^\d{4}-\d{2}-\d{2}$/.test(paid.d) && paid.empty, paid);
+    await ev(`document.querySelector('[data-mark-paid]').click()`); await sleep(300);
+    const one = await ev(`const t = Cloud._cache.trips.find((x) => x.id === 't1'); return { wait: t.payments.filter((p) => !p.received).length, st: t.payStatus, date: t.payments.find((p) => p.received && p.method === 'bank')?.receivedDate }`);
+    check('замовники: «Отримано» закриває лише один рядок', one.wait === 1 && one.st === 'waiting' && /^\d{4}-\d{2}-\d{2}$/.test(one.date || ''), one);
+    // Картка рейсу: відмітка натисканням
+    await ev(`document.querySelector('#settleView [data-open="t1"]').click()`); await sleep(300);
+    const vb = await ev(`return { chips: document.querySelectorAll('#viewBody .pay-chip').length, wait: document.querySelectorAll('#viewBody .pay-chip.is-wait').length, txt: !!document.querySelector('#viewBody .order-text'), img: !!document.querySelector('#viewBody .order-text img') }`);
+    check('картка рейсу: оплати і текст заявки (екранований)', vb.chips === 3 && vb.wait === 1 && vb.txt && !vb.img, vb);
+    await shot('11-trip-payments');
+    await ev(`document.querySelector('#viewBody .pay-chip.is-wait').click()`); await sleep(250);
+    const all = await ev(`const t = Cloud._cache.trips.find((x) => x.id === 't1'); return { st: t.payStatus, wait: t.payments.filter((p) => !p.received).length, chipsWait: document.querySelectorAll('#viewBody .pay-chip.is-wait').length }`);
+    check('картка рейсу: натиснув — отримано, рейс оплачено', all.st === 'paid' && all.wait === 0 && all.chipsWait === 0, all);
+    await ev(`document.querySelector('#viewBody .pay-chip').click()`); await sleep(250);
+    check('картка рейсу: повторне натискання повертає в «чекаємо»', await ev(`return Cloud._cache.trips.find((x) => x.id === 't1').payStatus === 'waiting'`));
+    await ev(`document.querySelector('#viewModal [data-close]').click()`); await sleep(150);
+    await ev(`document.querySelector('[data-settle-tab="customers"]').click()`); await sleep(200);
+    await ev(`document.querySelector('[data-mark-paid]').click()`); await sleep(300);
+    check('замовники: усе отримано — порожньо', await ev(`return /Усе оплачено/.test(document.querySelector('#settleView').innerText)`));
 
     // ===== Календар авто =====
     await go('');

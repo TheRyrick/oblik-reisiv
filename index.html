@@ -372,8 +372,8 @@
           <!-- Поля -->
           <div class="space-y-6 p-5">
             <fieldset class="fs">
-              <legend class="legend"><i data-lucide="send" class="h-4 w-4"></i>Звіт логіста з Телеграму</legend>
-              <textarea id="reportInput" rows="3" class="input min-h-[5rem] resize-y font-mono text-xs" placeholder="Вставте сюди звіт — дата, маршрут, готівка, безнал, карта та диспетчерські заповняться самі"></textarea>
+              <legend class="legend"><i data-lucide="send" class="h-4 w-4"></i>Заявка або звіт з Телеграму</legend>
+              <textarea id="reportInput" rows="3" class="input min-h-[5rem] resize-y font-mono text-xs" placeholder="Вставте заявку або звіт логіста як є — сайт візьме лише суми з «грн», маршрут і дату, а кожну оплату покаже окремим рядком"></textarea>
               <div id="reportResult" class="mt-2 hidden rounded-xl border px-3 py-2 text-xs"></div>
             </fieldset>
 
@@ -424,6 +424,14 @@
                 <label class="field"><span><i data-lucide="hand-coins" class="inline h-3.5 w-3.5 text-orange-400"></i> Диспетчерські, грн</span><input name="dispatch" type="number" inputmode="decimal" step="any" min="0" class="input" placeholder="0" /></label>
               </div>
               <p class="mt-2 text-xs text-slate-500">Готівка / безнал / карта — скільки отримали всього. Диспетчерські віддали посереднику, тому фрахт = отримано − диспетчерські. Від фрахту рахуються ЗП логіста, ЗП водія та прибуток.</p>
+              <div class="pay-lines mt-4">
+                <div class="mb-2 flex flex-wrap items-center justify-between gap-2">
+                  <div class="text-sm font-semibold text-white">Оплати по рядках <span id="payLinesSum" class="ml-1 text-xs font-normal text-slate-400"></span></div>
+                  <button type="button" id="payLineAdd" class="btn-ghost !min-h-0 !px-3 !py-1.5 text-xs"><i data-lucide="plus" class="h-4 w-4"></i><span>Додати рядок</span></button>
+                </div>
+                <div id="payLines" class="space-y-2"></div>
+                <p id="payLinesHint" class="mt-2 text-xs text-slate-500">Рядки з’являться самі, коли вставите заявку чи звіт. Поставте галочку «отримано» на тих, що вже оплачені, — решта піде в борги («Розрахунки → Замовники»).</p>
+              </div>
             </fieldset>
 
             <fieldset class="fs">
@@ -431,13 +439,9 @@
               <div class="grid gap-3 sm:grid-cols-2">
                 <label class="field sm:col-span-2"><span>Замовник</span><input name="customer" type="text" class="input" list="customersList" maxlength="80" placeholder="Напр. ТОВ «Агро-Схід»" autocomplete="off" /></label>
                 <datalist id="customersList"></datalist>
-                <div class="seg-toggle sm:col-span-2" role="radiogroup" aria-label="Оплата">
-                  <label><input type="radio" name="payStatus" value="paid" checked /><span>Оплачено</span></label>
-                  <label><input type="radio" name="payStatus" value="waiting" /><span>Чекаємо оплату</span></label>
-                </div>
-                <label id="payDueWrap" class="field hidden"><span>Оплатити до</span><input name="payDue" type="date" class="input" /></label>
+                <label id="payDueWrap" class="field hidden"><span>Чекаємо оплату до <em class="not-italic text-slate-500">(необовʼязково)</em></span><input name="payDue" type="date" class="input" /></label>
               </div>
-              <p id="payHint" class="mt-2 hidden text-xs text-slate-500">Сума боргу — уся сума рейсу (готівка + безнал + карта). Рейс з’явиться у «Розрахунки → Замовники», а коли строк мине — у нагадуваннях. Коли гроші прийдуть — натисніть там «Оплачено».</p>
+              <p id="payHint" class="mt-2 hidden text-xs text-slate-500">Якщо дату не вказати, сайт нагадає, коли оплата чекає довше 14 днів після рейсу.</p>
             </fieldset>
 
             <fieldset class="fs">

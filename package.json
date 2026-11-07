@@ -5,7 +5,7 @@
   "description": "Облік рейсів — статичний сайт із Supabase",
   "scripts": {
     "css": "tailwindcss -c tailwind.config.js -i css/tailwind.src.css -o css/tailwind.css --minify",
-    "test": "node --test tests/calc.test.js",
+    "test": "node --test tests/calc.test.js tests/report.test.js",
     "e2e": "node tests/e2e/run.js",
     "build": "npm run css && sh tools/build.sh"
   },

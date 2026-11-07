@@ -269,7 +269,7 @@ test('борги замовників: лише «чекаємо», простр
   const T = [
     trip({ id: '1', customer: 'ТОВ Альфа', payStatus: 'waiting', payDue: '2026-11-01' }), // прострочено 5 дн
     trip({ id: '2', customer: ' тов  альфа ', payStatus: 'waiting', payDue: '2026-11-20' }), // та сама фірма
-    trip({ id: '3', customer: 'Бета', payStatus: 'waiting' }),                               // без строку
+    trip({ id: '3', customer: 'Бета', payStatus: 'waiting', startDate: '2026-11-01', endDate: '2026-11-02' }), // без строку, чекаємо 4 дні
     trip({ id: '4', customer: 'Бета', payStatus: 'paid' }),
     trip({ id: '5', customer: 'Бета' }),                                                    // старий рейс — оплачений
   ];
@@ -350,4 +350,32 @@ test('щоденне нагадування для Telegram', () => {
   assert.doesNotMatch(txt, /Бета/, 'не прострочений борг не турбує');
   assert.equal(C.dailyDigest({ cars: [], trips: [] }, '2026-11-06'), '');
   assert.match(C.dailyDigest({}, '2026-11-06', { always: true }), /Усе гаразд/);
+});
+
+test('борги по рядках оплат: лише не отримані, без замовника — за рейсом, «чекаємо» понад 14 днів', () => {
+  const pays = [
+    { id: 'a', amount: 7000, method: 'card', received: true },
+    { id: 'b', amount: 6000, method: 'bank', note: 'в день выгрузки', received: false },
+    { id: 'c', amount: 1000, method: 'bank', note: 'по оригиналам', order: 3, received: false },
+    { id: 'x', amount: 500, method: 'evil', received: false },
+  ];
+  const T = [
+    trip({ id: 'r1', payments: pays, payStatus: 'waiting', startDate: '2026-10-01', endDate: '2026-10-05' }), // без замовника, 32 дні
+    trip({ id: 'r2', customer: 'Гама', payments: [{ id: 'd', amount: 3000, method: 'cash', received: false }], endDate: '2026-11-05', startDate: '2026-11-04' }),
+    trip({ id: 'r3', customer: 'Гама', payments: [{ id: 'e', amount: 3000, method: 'cash', received: true }], payStatus: 'waiting' }),
+  ];
+  assert.equal(C.tripPayments(T[0]).length, 3, 'зіпсований рядок відкинуто');
+  const D = C.customerDebts(T, {}, '2026-11-06');
+  assert.equal(D.count, 3);
+  assert.equal(D.total, 10000);
+  assert.equal(D.overdue, 7000, 'рейс r1 чекає 32 дні — прострочено');
+  const r1 = D.customers.find((g) => g.tripId === 'r1');
+  assert.equal(r1.name, '');
+  assert.equal(r1.items.length, 2);
+  assert.equal(r1.items[0].isLate, true);
+  assert.equal(r1.items[0].waitingDays, 32);
+  assert.equal(D.customers.find((g) => g.key === 'гама').total, 3000, 'усі рядки отримано — рейс r3 не борг, хоч payStatus і «waiting»');
+  const txt = C.dailyDigest({ trips: T }, '2026-11-06');
+  assert.match(txt, /рейс 01\.10\.2026 — 1 000 ₴ \(№3, безнал, по оригиналам\), чекаємо 32 дн\./);
+  assert.doesNotMatch(txt, /Гама/, 'свіжий борг не турбує');
 });

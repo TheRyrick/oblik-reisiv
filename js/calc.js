@@ -407,37 +407,56 @@
 
   const isDate = (d) => /^\d{4}-\d{2}-\d{2}$/.test(String(d || ''));
 
+  const METHODS = ['cash', 'card', 'bank'];
+  // Чекаємо оплату без вказаного строку довше — нагадуємо
+  const DEBT_LATE_DAYS = 14;
+
+  /** Рядки оплат рейсу (лише коректні). */
+  function tripPayments(t) {
+    return (Array.isArray(t && t.payments) ? t.payments : []).filter((p) => p && typeof p === 'object' && num(p.amount) > 0 && METHODS.includes(p.method));
+  }
+
   /**
-   * Борги замовників: рейси зі статусом оплати «чекаємо» (payStatus === 'waiting').
-   * Старі рейси без статусу вважаються оплаченими.
-   * Сума боргу — усе, що замовник має заплатити (готівка + безнал + карта).
-   * Повертає { total, overdue, count, overdueCount, customers: [{ key, name, total, overdue, items: [{ t, amount, due, daysLeft, isOverdue }] }] }.
+   * Борги замовників — по рядках оплат, які ще не отримано (payment.received !== true).
+   * Старі рейси без рядків, але зі статусом «чекаємо» (payStatus === 'waiting') — уся сума рейсу одним рядком.
+   * Групи: за замовником, а якщо його не вказано — за рейсом.
+   * Строк: t.payDue; якщо не вказано і чекаємо понад DEBT_LATE_DAYS днів від кінця рейсу — isLate.
    */
   function customerDebts(trips, rates, today) {
     const map = new Map();
     const out = { total: 0, overdue: 0, count: 0, overdueCount: 0, customers: [] };
     for (const t of trips || []) {
-      if (t.payStatus !== 'waiting') continue;
-      const c = calcTrip(t, rates);
-      const amount = c.received;
-      const name = cleanName(t.customer) || 'Без замовника';
-      const key = ownerKey(t.customer) || '—';
+      const pays = tripPayments(t);
+      let items;
+      if (pays.length) items = pays.filter((p) => p.received !== true).map((p) => ({ p, amount: num(p.amount), method: p.method, note: String(p.note || ''), order: p.order || null }));
+      else if (t.payStatus === 'waiting') items = [{ p: null, amount: calcTrip(t, rates).received, method: '', note: '', order: null }];
+      else continue;
+      items = items.filter((x) => x.amount > 0);
+      if (!items.length) continue;
+      const cust = cleanName(t.customer);
+      const key = cust ? ownerKey(cust) : 'trip:' + (t.id || '');
       const due = isDate(t.payDue) ? t.payDue : '';
       const daysLeft = due ? daysUntil(due, today) : null;
+      const from = isDate(t.endDate) ? t.endDate : isDate(t.startDate) ? t.startDate : '';
+      const waitingDays = from ? Math.max(0, -daysUntil(from, today)) : null;
       const isOverdue = daysLeft !== null && daysLeft < 0;
-      if (!map.has(key)) map.set(key, { key, name, total: 0, overdue: 0, items: [] });
+      const isLate = !due && waitingDays !== null && waitingDays > DEBT_LATE_DAYS;
+      if (!map.has(key)) map.set(key, { key, name: cust, tripId: cust ? '' : t.id || '', total: 0, overdue: 0, items: [] });
       const g = map.get(key);
-      g.items.push({ t, amount, due, daysLeft, isOverdue });
-      g.total += amount;
-      out.total += amount;
-      out.count++;
-      if (isOverdue) { g.overdue += amount; out.overdue += amount; out.overdueCount++; }
+      for (const x of items) {
+        Object.assign(x, { t, due, daysLeft, waitingDays, isOverdue, isLate });
+        g.items.push(x);
+        g.total += x.amount;
+        out.total += x.amount;
+        out.count++;
+        if (isOverdue || isLate) { g.overdue += x.amount; out.overdue += x.amount; out.overdueCount++; }
+      }
     }
+    const urgency = (x) => (x.daysLeft !== null ? x.daysLeft : x.waitingDays !== null ? DEBT_LATE_DAYS - x.waitingDays : 1e9);
     for (const g of map.values()) {
       g.total = round2(g.total);
       g.overdue = round2(g.overdue);
-      // Спершу найбільш прострочені, потім без строку
-      g.items.sort((a, b) => (a.daysLeft === null ? 1e9 : a.daysLeft) - (b.daysLeft === null ? 1e9 : b.daysLeft));
+      g.items.sort((a, b) => urgency(a) - urgency(b) || (a.order || 0) - (b.order || 0));
       out.customers.push(g);
     }
     out.customers.sort((a, b) => b.overdue - a.overdue || b.total - a.total);
@@ -556,13 +575,18 @@
     }
     const debts = customerDebts(trips, settings, today);
     const late = [];
-    for (const g of debts.customers) for (const it of g.items) if (it.isOverdue || it.daysLeft === 0) late.push({ g, it });
+    for (const g of debts.customers) for (const it of g.items) if (it.isOverdue || it.isLate || it.daysLeft === 0) late.push({ g, it });
     if (late.length) {
       if (lines.length) lines.push('');
-      lines.push(`💰 Борги замовників (усього ${fmt(debts.total)}):`);
-      for (const { g, it } of late) {
-        lines.push(`${it.isOverdue ? '🔴' : '🟡'} ${g.name} — ${fmt(it.amount)}, ${it.isOverdue ? `прострочено ${-it.daysLeft} дн.` : 'строк сьогодні'} (рейс ${dmy(it.t.startDate)}${it.t.route ? ', ' + String(it.t.route).slice(0, 60) : ''})`);
+      lines.push(`💰 Не оплачено (усього чекаємо ${fmt(debts.total)}):`);
+      const MN = { cash: 'готівка', card: 'карта', bank: 'безнал' };
+      for (const { g, it } of late.slice(0, 30)) {
+        const who = g.name || `рейс ${dmy(it.t.startDate)}`;
+        const when = it.isOverdue ? `прострочено ${-it.daysLeft} дн.` : it.isLate ? `чекаємо ${it.waitingDays} дн.` : 'строк сьогодні';
+        const what = [it.order ? `№${it.order}` : '', MN[it.method] || '', it.note].filter(Boolean).join(', ').slice(0, 60);
+        lines.push(`${it.isOverdue || it.isLate ? '🔴' : '🟡'} ${who} — ${fmt(it.amount)}${what ? ' (' + what + ')' : ''}, ${when}${g.name && it.t.route ? ' · ' + String(it.t.route).slice(0, 50) : ''}`);
       }
+      if (late.length > 30) lines.push(`… і ще ${late.length - 30}`);
     }
     if (!lines.length && !(opts && opts.always)) return '';
     const head = 'Облік рейсів — нагадування на ' + dmy(today);
@@ -573,7 +597,7 @@
     DEFAULTS, num, daysBetween, calcTrip, summarize, ownerKey, monthOf,
     ledger, ownerLedger, partnerLedger, driverLedger, payoutKind, payoutParty, driverKeyOf,
     carStats, carOdometer, carReminders, daysUntil, expensesInPeriod, DOCS, DOC_FIELDS,
-    customerDebts, monthForecast, daysInMonth, carCalendar, dailyDigest,
+    customerDebts, tripPayments, METHODS, monthForecast, daysInMonth, carCalendar, dailyDigest,
   };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   root.Calc = api;

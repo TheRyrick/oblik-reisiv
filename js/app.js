@@ -2,7 +2,7 @@
 (function () {
   'use strict';
 
-  const { calcTrip, summarize, DEFAULTS, num, ownerKey, ownerLedger, partnerLedger, driverLedger, carStats, carOdometer, carReminders, expensesInPeriod, customerDebts, monthForecast, carCalendar, DOC_FIELDS } = window.Calc;
+  const { calcTrip, summarize, DEFAULTS, num, ownerKey, ownerLedger, partnerLedger, driverLedger, carStats, carOdometer, carReminders, expensesInPeriod, customerDebts, tripPayments, METHODS, monthForecast, carCalendar, DOC_FIELDS } = window.Calc;
 
   const Cloud = window.Cloud;
   const MONTHS = ['Січень', 'Лютий', 'Березень', 'Квітень', 'Травень', 'Червень', 'Липень', 'Серпень', 'Вересень', 'Жовтень', 'Листопад', 'Грудень'];
@@ -546,7 +546,7 @@
       const d = tripDriver(t);
       const hasPlate = !!tripPlate(t).plate;
       return `
-        ${t.managed ? `<div class="mt-1">${mgmtBadge(t)}</div>` : ''}
+        ${t.managed || tripWaiting(t) ? `<div class="mt-1 flex flex-wrap gap-1">${mgmtBadge(t)}${waitBadge(t)}</div>` : ''}
         ${hasPlate ? `<div class="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-300"><i data-lucide="calendar" class="h-3 w-3 text-slate-500"></i>${tripDates(t)}</div>` : ''}
         <div class="max-w-[260px] truncate text-xs text-slate-500">${escapeHtml(t.route || t.note || 'Без маршруту')}</div>
         ${d ? `<div class="mt-0.5 inline-flex items-center gap-1 text-xs text-slate-400"><i data-lucide="user-round" class="h-3 w-3 text-amber-300"></i>${escapeHtml(d)}</div>` : ''}`;
@@ -1271,18 +1271,27 @@
   }
 
   // ---------- Борги замовників ----------
-  const dueText = (it) => it.daysLeft === null ? 'строк не вказано'
-    : it.daysLeft < 0 ? `прострочено ${-it.daysLeft} ${plural(-it.daysLeft, 'день', 'дні', 'днів')}`
-    : it.daysLeft === 0 ? 'строк сьогодні'
-    : `до ${fmtDate(it.due)} · ще ${it.daysLeft} ${plural(it.daysLeft, 'день', 'дні', 'днів')}`;
+  const dueText = (it) => it.daysLeft !== null
+    ? (it.daysLeft < 0 ? `прострочено ${-it.daysLeft} ${plural(-it.daysLeft, 'день', 'дні', 'днів')}`
+      : it.daysLeft === 0 ? 'строк сьогодні'
+      : `до ${fmtDate(it.due)} · ще ${it.daysLeft} ${plural(it.daysLeft, 'день', 'дні', 'днів')}`)
+    : it.waitingDays !== null ? `чекаємо ${it.waitingDays} ${plural(it.waitingDays, 'день', 'дні', 'днів')} після рейсу` : 'строк не вказано';
+  /** Назва групи боргу: замовник, або рейс (дати · маршрут), якщо замовника не вказано. */
+  const debtName = (g) => g.name || (() => { const t = g.items[0].t; return `Рейс ${tripDates(t)}`; })();
 
-  function markPaid(id) {
-    const t = trips.find((x) => x.id === id);
-    if (!t || t.payStatus !== 'waiting') return;
-    const amount = calcTrip(t, settings).received;
-    if (!confirm(`Позначити, що ${t.customer || 'замовник'} оплатив ${uah(amount)} за рейс ${fmtDate(t.startDate)}?`)) return;
-    Object.assign(t, { payStatus: 'paid', paidDate: today(), payDue: '', updatedAt: Date.now() });
-    saveTrips();
+  function markPaid(ref) {
+    const [tripId, payId = ''] = String(ref).split('|');
+    const t = trips.find((x) => x.id === tripId);
+    if (!t) return;
+    const p = payId && tripPayments(t).find((x) => x.id === payId);
+    const amount = p ? num(p.amount) : tripWaiting(t);
+    if (!confirm(`Позначити, що отримали ${uah(amount)}${t.customer ? ' від ' + t.customer : ''} (рейс ${fmtDate(t.startDate)})?`)) return;
+    if (setPaid(tripId, payId, true)) { renderAll(); toast('Оплату записано'); }
+  }
+  function markAllPaid(key) {
+    const g = customerDebts(trips, settings, today()).customers.find((x) => x.key === key);
+    if (!g || !confirm(`Позначити все від «${debtName(g)}» як отримане (${uah(g.total)})?`)) return;
+    for (const it of g.items) setPaid(it.t.id, it.p ? it.p.id : '', true);
     renderAll();
     toast('Оплату записано');
   }
@@ -1293,31 +1302,34 @@
       return tabs + `
         <div class="card"><div class="empty-hero empty-compact">
           <div class="empty-icon" aria-hidden="true"><i data-lucide="building-2"></i></div>
-          <h2 class="empty-title">Замовники нічого не винні</h2>
-          <p class="mx-auto mt-2 max-w-lg text-sm text-slate-400">Коли гроші за рейс ще не прийшли — відкрийте рейс, у блоці <b class="text-slate-200">«Замовник і оплата»</b> виберіть «Чекаємо оплату» і вкажіть, до якого числа мають заплатити. Тут буде список боржників, а прострочені — ще й на панелі та в Telegram.</p>
+          <h2 class="empty-title">Усе оплачено — ніхто нічого не винен</h2>
+          <p class="mx-auto mt-2 max-w-lg text-sm text-slate-400">Вставте заявку або звіт у рейс (поле <b class="text-slate-200">«Заявка або звіт з Телеграму»</b>) — кожна сума стане окремим рядком. Зніміть галочку «отримано» з тих, що ще не оплачені, і вони з’являться тут.</p>
         </div></div>`;
     }
     const head = `
       <div class="card flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div class="min-w-0">
-          <h2 class="card-title">Замовники: скільки винні вам</h2>
-          <p class="text-xs text-slate-400">Рейси зі статусом «Чекаємо оплату». Сума — усе, що має заплатити замовник за рейс. Прийшли гроші — натисніть «Оплачено».</p>
+          <h2 class="card-title">Не оплачено: скільки винні вам</h2>
+          <p class="text-xs text-slate-400">Кожен рядок — окрема сума із заявки чи звіту. Прийшли гроші — натисніть «Отримано». Без дати оплати сайт вважає простроченим те, що чекає понад 14 днів після рейсу.</p>
         </div>
         <div class="shrink-0 text-left sm:text-right">
           <div class="num text-2xl font-extrabold text-white">${uah(D.total)}</div>
           <div class="text-xs ${D.overdue ? 'text-loss font-semibold' : 'text-slate-500'}">${D.overdue ? `прострочено ${uah(D.overdue)}` : 'прострочених немає'}</div>
         </div>
       </div>`;
-    const cards = D.customers.map((g) => `
+    const cards = D.customers.map((g) => {
+      const t0 = g.items[0].t;
+      const sub = g.name ? `${g.items.length} ${plural(g.items.length, 'сума чекає', 'суми чекають', 'сум чекають')} оплату` : escapeHtml(t0.route || 'Без маршруту') + (tripPlate(t0).plate ? ' · ' + escapeHtml(tripPlate(t0).plate) : '');
+      return `
       <article class="card owner-card">
         <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div class="flex min-w-0 items-center gap-2">
-            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sky-500/15 text-sky-300"><i data-lucide="building-2" class="h-5 w-5"></i></span>
-            <div class="min-w-0"><h3 class="truncate text-lg font-bold text-white">${escapeHtml(g.name)}</h3>
-            <div class="text-xs text-slate-500">${g.items.length} ${plural(g.items.length, 'рейс', 'рейси', 'рейсів')} чекають оплату</div></div>
+            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-sky-500/15 text-sky-300"><i data-lucide="${g.name ? 'building-2' : 'route'}" class="h-5 w-5"></i></span>
+            <div class="min-w-0">${g.name ? `<h3 class="truncate text-lg font-bold text-white">${escapeHtml(g.name)}</h3>` : `<button type="button" class="truncate text-left text-lg font-bold text-white hover:underline" data-open="${escapeHtml(t0.id)}">${debtName(g)}</button>`}
+            <div class="truncate text-xs text-slate-500">${sub}</div></div>
           </div>
           <div class="owner-balance">
-            <div class="text-xs text-slate-400">Винен вам</div>
+            <div class="text-xs text-slate-400">Чекаємо</div>
             <div class="num text-3xl font-extrabold text-white">${uah(g.total)}</div>
             ${g.overdue ? `<div class="text-xs font-semibold text-loss">з них прострочено ${uah(g.overdue)}</div>` : ''}
           </div>
@@ -1325,13 +1337,15 @@
         <ul class="mt-3 divide-y divide-white/5">${g.items.map((it) => `
           <li class="flex flex-col gap-2 py-2.5 sm:flex-row sm:items-center sm:gap-3">
             <button type="button" class="min-w-0 flex-1 text-left" data-open="${escapeHtml(it.t.id)}">
-              <span class="block text-sm text-white">${tripDates(it.t)}${it.t.route ? ' · ' + escapeHtml(it.t.route) : ''}</span>
-              <span class="block text-xs ${it.isOverdue ? 'font-semibold text-loss' : it.daysLeft === 0 ? 'text-amber-300' : 'text-slate-500'}">${dueText(it)}${tripPlate(it.t).plate ? ' · ' + escapeHtml(tripPlate(it.t).plate) : ''}</span>
+              <span class="block text-sm text-white">${it.order ? escapeHtml(String(it.order)) + ') ' : ''}${it.method ? METHOD_LABEL[it.method] : 'уся сума рейсу'}${it.note ? ' · ' + escapeHtml(it.note) : ''}</span>
+              <span class="block text-xs ${it.isOverdue || it.isLate ? 'font-semibold text-loss' : it.daysLeft === 0 ? 'text-amber-300' : 'text-slate-500'}">${g.name ? tripDates(it.t) + ' · ' : ''}${dueText(it)}</span>
             </button>
             <span class="num shrink-0 font-semibold text-white">${uah(it.amount)}</span>
-            <button type="button" class="btn-ghost !min-h-0 shrink-0 !px-3 !py-1.5 text-xs" data-mark-paid="${escapeHtml(it.t.id)}"><i data-lucide="check" class="h-4 w-4"></i><span>Оплачено</span></button>
+            <button type="button" class="btn-ghost !min-h-0 shrink-0 !px-3 !py-1.5 text-xs" data-mark-paid="${escapeHtml(it.t.id)}|${escapeHtml(it.p ? it.p.id || '' : '')}"><i data-lucide="check" class="h-4 w-4"></i><span>Отримано</span></button>
           </li>`).join('')}</ul>
-      </article>`).join('');
+        ${g.items.length > 1 ? `<button type="button" class="btn-ghost mt-3 !min-h-0 !px-3 !py-1.5 text-xs" data-mark-all="${escapeHtml(g.key)}"><i data-lucide="check-circle-2" class="h-4 w-4"></i><span>Усе отримано (${uah(g.total)})</span></button>` : ''}
+      </article>`;
+    }).join('');
     return tabs + head + cards;
   }
 
@@ -1345,15 +1359,15 @@
       <div class="card">
         <div class="mb-3 flex items-center gap-2">
           <i data-lucide="building-2" class="h-5 w-5 ${D.overdue ? 'text-loss' : 'text-sky-300'}"></i>
-          <h2 class="card-title">Борги замовників</h2>
+          <h2 class="card-title">Не оплачено</h2>
         </div>
         <div class="flex flex-wrap items-end justify-between gap-3">
           <div><div class="text-xs text-slate-400">Вам винні</div><div class="num text-3xl font-extrabold text-white">${uah(D.total)}</div>
-          <div class="text-xs text-slate-500">${D.count} ${plural(D.count, 'рейс', 'рейси', 'рейсів')} · ${D.customers.length} ${plural(D.customers.length, 'замовник', 'замовники', 'замовників')}</div></div>
-          ${D.overdue ? `<div class="text-right"><div class="text-xs text-slate-400">Прострочено</div><div class="num text-xl font-bold text-loss">${uah(D.overdue)}</div><div class="text-xs text-slate-500">${D.overdueCount} ${plural(D.overdueCount, 'рейс', 'рейси', 'рейсів')}</div></div>` : ''}
+          <div class="text-xs text-slate-500">${D.count} ${plural(D.count, 'сума', 'суми', 'сум')}</div></div>
+          ${D.overdue ? `<div class="text-right"><div class="text-xs text-slate-400">Прострочено</div><div class="num text-xl font-bold text-loss">${uah(D.overdue)}</div><div class="text-xs text-slate-500">${D.overdueCount} ${plural(D.overdueCount, 'сума', 'суми', 'сум')}</div></div>` : ''}
         </div>
-        <ul class="mt-3 space-y-1 text-sm">${D.customers.slice(0, 4).map((g) => `<li class="flex justify-between gap-3"><span class="truncate text-slate-300">${escapeHtml(g.name)}</span><span class="num shrink-0 ${g.overdue ? 'text-loss' : 'text-slate-200'}">${uah(g.total)}</span></li>`).join('')}</ul>
-        <a href="#settle" class="btn-ghost mt-3" data-settle-go="customers"><span>Усі боржники</span><i data-lucide="arrow-right" class="h-4 w-4"></i></a>
+        <ul class="mt-3 space-y-1 text-sm">${D.customers.slice(0, 4).map((g) => `<li class="flex justify-between gap-3"><span class="truncate text-slate-300">${g.name ? escapeHtml(g.name) : debtName(g)}</span><span class="num shrink-0 ${g.overdue ? 'text-loss' : 'text-slate-200'}">${uah(g.total)}</span></li>`).join('')}</ul>
+        <a href="#settle" class="btn-ghost mt-3" data-settle-go="customers"><span>Детально</span><i data-lucide="arrow-right" class="h-4 w-4"></i></a>
       </div>` : '';
     const pct = F.bizExpenses > 0 ? Math.min(100, Math.max(0, (F.owner / F.bizExpenses) * 100)) : 100;
     const mName = monthLabel(F.month, true);
@@ -1719,12 +1733,63 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
        </div>`;
   }
 
+  /** Скільки по рейсу ще не оплачено (рядки «чекаємо», або весь рейс для старих записів). */
+  function tripWaiting(t) {
+    const pays = tripPayments(t);
+    if (pays.length) return waitingSum(pays);
+    return t.payStatus === 'waiting' ? calcTrip(t, settings).received : 0;
+  }
   /** Статус оплати рейсу для показу (HTML). */
   function payStatusHtml(t) {
-    if (t.payStatus !== 'waiting') return `<span class="text-profit">оплачено${t.paidDate ? ' ' + fmtDate(t.paidDate) : ''}</span>`;
+    const w = tripWaiting(t);
+    if (!w) return `<span class="text-profit">усе оплачено${t.paidDate ? ' ' + fmtDate(t.paidDate) : ''}</span>`;
     const d = t.payDue ? Calc.daysUntil(t.payDue, today()) : null;
-    const when = d === null ? 'строк не вказано' : d < 0 ? `прострочено ${-d} ${plural(-d, 'день', 'дні', 'днів')}` : d === 0 ? 'строк сьогодні' : `до ${fmtDate(t.payDue)}`;
-    return `<span class="${d !== null && d < 0 ? 'text-loss font-semibold' : 'text-amber-300'}">чекаємо · ${when}</span>`;
+    const when = d === null ? '' : d < 0 ? ` · прострочено ${-d} ${plural(-d, 'день', 'дні', 'днів')}` : d === 0 ? ' · строк сьогодні' : ` · до ${fmtDate(t.payDue)}`;
+    return `<span class="${d !== null && d < 0 ? 'text-loss font-semibold' : 'text-amber-300'}">чекаємо ${uah(w)}${when}</span>`;
+  }
+  /** Значок «чекаємо N ₴» у списку рейсів. */
+  const waitBadge = (t) => { const w = tripWaiting(t); return w ? `<span class="badge wait-badge" title="Ще не оплачено"><i data-lucide="clock" class="h-3 w-3"></i>чекаємо ${uah(w)}</span>` : ''; };
+
+  /** Рядки оплат у картці рейсу: натиснути — «отримано» / «чекаємо». */
+  function payBlockHtml(t) {
+    const pays = tripPayments(t);
+    if (!pays.length) return '';
+    const w = waitingSum(pays);
+    const tid = escapeHtml(t.id);
+    return `
+      <section class="view-block md:col-span-2 xl:col-span-3">
+        <h4 class="flex-wrap"><i data-lucide="hand-coins" class="h-4 w-4"></i>Оплати
+          <span class="ml-auto text-xs font-normal ${w ? 'text-amber-300' : 'text-profit'}">${w ? `чекаємо ${uah(w)} з ${uah(pays.reduce((a, p) => a + num(p.amount), 0))}` : 'усе отримано'}</span>
+        </h4>
+        <p class="mb-2 text-xs text-slate-500">Натисніть на рядок, щоб позначити «отримано» або повернути в «чекаємо».</p>
+        <div class="pay-grid">${pays.map((p) => `
+          <button type="button" class="pay-chip ${p.received ? 'is-got' : 'is-wait'}" data-toggle-pay="${tid}|${escapeHtml(p.id || '')}" aria-pressed="${p.received ? 'true' : 'false'}">
+            <i data-lucide="${p.received ? 'check-circle-2' : 'clock'}" class="h-4 w-4 shrink-0"></i>
+            <span class="min-w-0 flex-1 text-left"><span class="block truncate">${p.order ? escapeHtml(String(p.order)) + ') ' : ''}${METHOD_LABEL[p.method] || ''}${p.note ? ' · ' + escapeHtml(p.note) : ''}</span>
+            <span class="block text-xs opacity-75">${p.received ? 'отримано' + (p.receivedDate ? ' ' + fmtDate(p.receivedDate) : '') : 'чекаємо'}</span></span>
+            <span class="num shrink-0 font-semibold">${uah(num(p.amount))}</span>
+          </button>`).join('')}</div>
+        ${w ? `<button type="button" class="btn-ghost mt-3 !min-h-0 !px-3 !py-1.5 text-xs" data-pay-all="${tid}"><i data-lucide="check" class="h-4 w-4"></i><span>Усе отримано</span></button>` : ''}
+      </section>`;
+  }
+
+  /** Позначити рядок оплати (або весь рейс) отриманим / не отриманим і зберегти. */
+  function setPaid(tripId, payId, value) {
+    const t = trips.find((x) => x.id === tripId);
+    if (!t) return false;
+    const d = today();
+    if (!tripPayments(t).length) t.payments = paysForForm(t); // старий рейс «чекаємо» без рядків
+    for (const p of t.payments) {
+      if (!p || (payId && p.id !== payId)) continue;
+      p.received = value === undefined ? !p.received : value;
+      p.receivedDate = p.received ? p.receivedDate || d : '';
+    }
+    const waiting = t.payments.some((p) => p && !p.received);
+    t.payStatus = waiting ? 'waiting' : 'paid';
+    if (!waiting) { t.paidDate = d; t.payDue = ''; }
+    t.updatedAt = Date.now();
+    saveTrips();
+    return true;
   }
 
   function renderTripView() {
@@ -1748,7 +1813,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
           row('Авто', escapeHtml(tripCar(t) || '—')) +
           (t.managed ? row('Власник авто', escapeHtml(t.ownerName || '—') + ` · ваша частка ${fmtL.format(c.mgmtShare)}%`, 'text-slate-200') : '') +
           row('Замовник', escapeHtml(t.customer || '—')) +
-          row('Оплата', payStatusHtml(t)) +
+          (tripPayments(t).length || t.payStatus === 'waiting' ? row('Оплата', payStatusHtml(t)) : '') +
           row('Нотатка', escapeHtml(t.note || '—'), 'font-normal text-slate-300'))}
         ${block('gauge', 'Пробіг',
           row('Діб у рейсі', c.days) +
@@ -1805,6 +1870,13 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
              <div class="text-xs text-slate-400">чистий бізнесу ${fmtDec.format(c.profitPerKm)} ₴ з кожного км</div>
            </div>`)}
       </div>`;
+    const pb = payBlockHtml(t);
+    if (pb) $('#viewBody .grid').insertAdjacentHTML('afterbegin', pb);
+    if (t.orderText) {
+      $('#viewBody').insertAdjacentHTML('beforeend', `
+        <details class="owner-more mt-4"><summary><i data-lucide="file-text" class="h-4 w-4"></i>Текст заявки / звіту<i data-lucide="chevron-down" class="ml-auto h-4 w-4 caret"></i></summary>
+          <pre class="order-text">${escapeHtml(t.orderText)}</pre></details>`);
+    }
   }
 
   $('#viewEdit').addEventListener('click', () => {
@@ -1846,8 +1918,8 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
   }
 
   const tripForm = $('#tripForm');
-  const FIELDS = ['driverId', 'carId', 'startDate', 'endDate', 'route', 'odoStart', 'odoEnd', 'fuelLiters', 'fuelPrice', 'fuelPriceActual', 'cash', 'bank', 'card', 'dispatch', 'repairExpenses', 'otherExpenses', 'note', 'perDiem', 'stoRate', 'taxRate', 'driverRate', 'partnerRate', 'logistRate', 'mgmtShare', 'customer', 'payStatus', 'payDue'];
-  const TEXT_FIELDS = ['driverId', 'carId', 'startDate', 'endDate', 'route', 'note', 'customer', 'payStatus', 'payDue'];
+  const FIELDS = ['driverId', 'carId', 'startDate', 'endDate', 'route', 'odoStart', 'odoEnd', 'fuelLiters', 'fuelPrice', 'fuelPriceActual', 'cash', 'bank', 'card', 'dispatch', 'repairExpenses', 'otherExpenses', 'note', 'perDiem', 'stoRate', 'taxRate', 'driverRate', 'partnerRate', 'logistRate', 'mgmtShare', 'customer', 'payDue'];
+  const TEXT_FIELDS = ['driverId', 'carId', 'startDate', 'endDate', 'route', 'note', 'customer', 'payDue'];
 
   /** Списки водіїв/авто у формі рейсу. Якщо в рейсі вказано вже видаленого — показуємо його окремо. */
   function renderTripSelects(t) {
@@ -1906,8 +1978,6 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
   function fillForm(t) {
     renderTripSelects(t);
     for (const f of FIELDS) tripForm.elements[f].value = t[f] ?? '';
-    // Старі рейси без статусу — оплачені
-    tripForm.elements.payStatus.value = t.payStatus === 'waiting' ? 'waiting' : 'paid';
     // Підказки замовників — з уже внесених рейсів
     const names = new Map();
     for (const x of trips) { const n = cleanName(x.customer); if (n && !names.has(ownerKey(n))) names.set(ownerKey(n), n); }
@@ -1915,12 +1985,98 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     syncPayUi();
   }
 
-  /** Поле «Оплатити до» — лише коли чекаємо оплату. */
+  /** Поле «Чекаємо оплату до» — лише коли є неотримані рядки оплат. */
   function syncPayUi() {
-    const waiting = tripForm.elements.payStatus.value === 'waiting';
+    const waiting = formPays.some((p) => !p.received);
     $('#payDueWrap').classList.toggle('hidden', !waiting);
     $('#payHint').classList.toggle('hidden', !waiting);
   }
+
+  // ---------- Рядки оплат у формі рейсу ----------
+  // Кожна оплата із заявки / звіту — окремий рядок: сума, спосіб, коментар, «отримано / чекаємо».
+  // Коли рядки є, поля «Готівка / Безнал / Карта» рахуються з них автоматично.
+  let formPays = [];
+  let formOrderText = '';
+  const METHOD_LABEL = { cash: 'готівка', card: 'карта', bank: 'безнал' };
+  const sumPays = (list) => {
+    const o = { cash: 0, card: 0, bank: 0 };
+    for (const p of list) if (o[p.method] !== undefined) o[p.method] += num(p.amount);
+    return o;
+  };
+  const waitingSum = (list) => list.filter((p) => !p.received).reduce((a, p) => a + num(p.amount), 0);
+
+  /** Рядки для форми: збережені, або для старого рейсу «чекаємо» — із полів готівка/безнал/карта. */
+  function paysForForm(t) {
+    const list = tripPayments(t).map((p) => Object.assign({}, p));
+    if (list.length || t.payStatus !== 'waiting') return list;
+    return METHODS.filter((m) => num(t[m]) > 0).map((m) => ({ id: uid(), amount: num(t[m]), method: m, note: '', received: false }));
+  }
+
+  function renderPayLines() {
+    $('#payLines').innerHTML = formPays.map((p, i) => `
+      <div class="pay-line ${p.received ? 'is-got' : 'is-wait'}" data-i="${i}">
+        <span class="pay-no">${p.order ? escapeHtml(String(p.order)) + ')' : '•'}</span>
+        <input data-f="amount" type="number" inputmode="decimal" step="any" min="0" class="input pay-amt" value="${escapeHtml(String(p.amount ?? ''))}" placeholder="Сума" aria-label="Сума, грн" />
+        <select data-f="method" class="input pay-method ${p.guessed ? 'is-guessed' : ''}" aria-label="Як платять" ${p.guessed ? 'title="У заявці не вказано, як платять — перевірте"' : ''}>${Object.entries(METHOD_LABEL).map(([k, l]) => `<option value="${k}" ${p.method === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
+        <input data-f="note" type="text" maxlength="120" class="input pay-note" value="${escapeHtml(p.note || '')}" placeholder="коментар, напр. по оригіналах" aria-label="Коментар" />
+        <label class="pay-got"><input data-f="received" type="checkbox" ${p.received ? 'checked' : ''} /><span>${p.received ? 'отримано' : 'чекаємо'}</span></label>
+        <button type="button" class="icon-btn danger" data-pay-del="${i}" title="Видалити рядок" aria-label="Видалити рядок"><i data-lucide="trash-2" class="h-4 w-4"></i></button>
+      </div>`).join('');
+    syncPaySums();
+    refreshIcons();
+  }
+
+  function syncPaySums() {
+    const has = formPays.length > 0;
+    const sums = sumPays(formPays);
+    for (const f of METHODS) {
+      const el = tripForm.elements[f];
+      el.readOnly = has;
+      el.classList.toggle('is-auto', has);
+      el.title = has ? 'Рахується з рядків оплат нижче' : '';
+      if (has) el.value = sums[f] ? Math.round(sums[f] * 100) / 100 : '';
+    }
+    const w = waitingSum(formPays);
+    $('#payLinesSum').innerHTML = has ? `${formPays.length} ${plural(formPays.length, 'рядок', 'рядки', 'рядків')} · ${w ? `<span class="text-amber-300">чекаємо ${uah(w)}</span>` : '<span class="text-profit">усе отримано</span>'}` : '';
+    $('#payLinesHint').classList.toggle('hidden', has);
+    syncPayUi();
+  }
+
+  $('#payLines').addEventListener('input', (e) => {
+    const row = e.target.closest('.pay-line');
+    const f = e.target.dataset.f;
+    if (!row || !f) return;
+    const p = formPays[Number(row.dataset.i)];
+    if (!p) return;
+    if (f === 'received') {
+      p.received = e.target.checked;
+      if (p.received && !p.receivedDate) p.receivedDate = today();
+      row.classList.toggle('is-got', p.received);
+      row.classList.toggle('is-wait', !p.received);
+      row.querySelector('.pay-got span').textContent = p.received ? 'отримано' : 'чекаємо';
+    } else if (f === 'method') {
+      p.method = e.target.value;
+      p.guessed = false;
+      e.target.classList.remove('is-guessed');
+    } else if (f === 'amount') {
+      p.amount = e.target.value === '' ? '' : num(e.target.value);
+      e.target.classList.remove('invalid');
+    } else p.note = e.target.value;
+    syncPaySums();
+  });
+  $('#payLines').addEventListener('click', (e) => {
+    const del = e.target.closest('[data-pay-del]');
+    if (!del) return;
+    formPays.splice(Number(del.dataset.payDel), 1);
+    renderPayLines();
+    updatePreview();
+  });
+  $('#payLineAdd').addEventListener('click', () => {
+    formPays.push({ id: uid(), amount: '', method: 'bank', note: '', received: false });
+    renderPayLines();
+    const rows = $$('#payLines .pay-amt');
+    if (rows.length) rows[rows.length - 1].focus();
+  });
 
   function lastTrip() {
     return trips.slice().sort((a, b) => (b.endDate || '').localeCompare(a.endDate || '') || num(b.odoEnd) - num(a.odoEnd))[0];
@@ -1930,6 +2086,8 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     clearErrors();
     resetReport();
     const existing = id ? trips.find((t) => t.id === id) : null;
+    formPays = existing && !copy ? paysForForm(existing) : [];
+    formOrderText = existing && !copy ? String(existing.orderText || '') : '';
     editingId = existing && !copy ? existing.id : null;
     formSource = existing;
 
@@ -1944,9 +2102,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
         tripForm.elements.fuelLiters.value = '';
         tripForm.elements.repairExpenses.value = '';
         for (const f of ['cash', 'bank', 'card', 'dispatch']) tripForm.elements[f].value = '';
-        tripForm.elements.payStatus.value = 'paid';
         tripForm.elements.payDue.value = '';
-        syncPayUi();
       }
     } else {
       const prev = lastTrip();
@@ -1966,6 +2122,7 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     $('#tripModalTitle').textContent = editingId ? 'Редагування рейсу' : copy ? 'Новий рейс (копія)' : 'Новий рейс';
     // Новий рейс / копія — частка з авто; редагування — збережена в рейсі
     syncMgmtUi(!editingId);
+    renderPayLines();
     updatePreview();
     openModal($('#tripModal'));
     setTimeout(() => tripForm.elements[editingId ? 'cash' : 'startDate'].focus({ preventScroll: true }), 50);
@@ -2039,21 +2196,30 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
       el.card.value = r.card || '';
       el.dispatch.value = r.dispatch || '';
     }
+    if (r.payments.length) {
+      formPays = r.payments.map((p) => Object.assign({ id: uid() }, p));
+      formOrderText = text.slice(0, 5000);
+      if (r.customer && !el.customer.value.trim()) el.customer.value = r.customer;
+      renderPayLines();
+    }
 
     const ok = got > 0;
     if (ok) {
       const parts = [
-        `<b>${r.orders} ${plural(r.orders, 'замовлення', 'замовлення', 'замовлень')}</b>`,
+        `<b>${r.orders} ${plural(r.orders, 'оплата', 'оплати', 'оплат')}</b>`,
         r.cash ? `готівка ${uah(r.cash)}` : '',
         r.bank ? `безнал ${uah(r.bank)}` : '',
         r.card ? `карта ${uah(r.card)}` : '',
         r.dispatch ? `диспетчерські − ${uah(r.dispatch)}` : 'диспетчерських у звіті не знайдено',
       ].filter(Boolean);
       notes.push('✓ Розпізнано: ' + parts.join(' · ') + ` → фрахт <b>${uah(got - r.dispatch)}</b>`);
+      const w = waitingSum(formPays);
+      notes.push(w ? `Чекаємо оплату: <b>${uah(w)}</b> — перевірте галочки «отримано» в рядках оплат нижче.` : 'Усі суми позначено як отримані — зніміть галочку з тих, що ще не оплачені.');
+      if (r.guessed) notes.push(`У ${r.guessed} ${plural(r.guessed, 'рядку', 'рядках', 'рядках')} не вказано, як платять — поставив «безнал» (виділено жовтим), перевірте.`);
       if (!r.startDate) notes.push('Дату не знайдено — вкажіть вручну.');
       else if (!r.endDate) notes.push('Дату кінця поставив таку ж, як початок — виправте, якщо рейс був довший.');
     } else {
-      notes.push('Не вдалося знайти суми. Рядки мають виглядати так: «12000грн / безнал», «7000грн / наличка», «-1000грн / диспетчерских».');
+      notes.push('Не вдалося знайти суми. Рядки мають виглядати так: «12000грн / безнал», «7000грн / наличка», «-300грн / диспетчерских».');
     }
     if (r.remainders.length) notes.push('Залишок після диспетчерських (не рахується повторно): ' + r.remainders.map((l) => `«${escapeHtml(l)}»`).join(', '));
     if (r.unknown.length) notes.push('Не зрозумів, як оплачено (пропущено): ' + r.unknown.map((l) => `«${escapeHtml(l)}»`).join(', '));
@@ -2069,6 +2235,19 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
   reportInput.addEventListener('input', (e) => {
     e.stopPropagation();
     applyReport();
+  });
+
+  // Заявку вставили в поле «Замовник» — переносимо її в розбір, а в «Замовник» лишаємо тільки імʼя
+  tripForm.elements.customer.addEventListener('paste', (e) => {
+    const text = (e.clipboardData || window.clipboardData).getData('text') || '';
+    if (!/\n/.test(text.trim()) && !/\d\s*(грн|гр\b|₴)/i.test(text)) return; // звичайне імʼя — вставляємо як є
+    e.preventDefault();
+    reportInput.value = text;
+    tripForm.elements.customer.value = '';
+    applyReport();
+    if (!tripForm.elements.customer.value) tripForm.elements.customer.value = window.Report.parse(text).customer || '';
+    reportInput.closest('fieldset').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    toast('Заявку розібрано — перевірте рядки оплат', 'info');
   });
 
   function clearErrors() {
@@ -2091,7 +2270,13 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
       if (d[f] !== '' && d[f] < 0) { errors.push('Значення не можуть бути відʼємними.'); mark(f); break; }
     }
     if (num(d.dispatch) > num(d.cash) + num(d.bank) + num(d.card)) { errors.push('Диспетчерські більші за отриману суму.'); mark('dispatch'); }
-    if (d.payStatus === 'waiting' && d.payDue && !/^\d{4}-\d{2}-\d{2}$/.test(d.payDue)) { errors.push('Невірна дата «Оплатити до».'); mark('payDue'); }
+    if (d.payDue && !/^\d{4}-\d{2}-\d{2}$/.test(d.payDue)) { errors.push('Невірна дата «Чекаємо оплату до».'); mark('payDue'); }
+    const badPay = formPays.findIndex((p) => !(num(p.amount) > 0) || num(p.amount) > 1e9);
+    if (badPay >= 0) {
+      errors.push('Вкажіть суму в кожному рядку оплати (або видаліть порожній рядок).');
+      const el = $$('#payLines .pay-amt')[badPay];
+      if (el) el.classList.add('invalid');
+    }
     return errors;
   }
 
@@ -2123,14 +2308,19 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     if (d.partnerRate === '') d.partnerRate = settings.partnerRate;
     if (d.logistRate === '') d.logistRate = settings.logistRate;
     if (d.managed && d.mgmtShare === '') d.mgmtShare = num(formMgmt().share);
-    // Оплата: «чекаємо» → з датою строку; «оплачено» → без строку, запамʼятовуємо день оплати
+    // Оплати по рядках: суми готівка / безнал / карта — з рядків; статус «чекаємо», якщо є неотримані
     d.customer = cleanName(d.customer).slice(0, 80);
-    if (d.payStatus !== 'waiting') {
-      d.payStatus = 'paid';
-      d.payDue = '';
-      const prev = editingId && trips.find((t) => t.id === editingId);
-      if (prev && prev.payStatus === 'waiting') d.paidDate = today();
-    } else d.paidDate = '';
+    d.payments = formPays.map((p) => ({
+      id: p.id || uid(), amount: Math.round(num(p.amount) * 100) / 100,
+      method: METHODS.includes(p.method) ? p.method : 'bank',
+      note: String(p.note || '').trim().slice(0, 120),
+      order: Number.isInteger(p.order) ? p.order : null,
+      received: !!p.received, receivedDate: p.received ? p.receivedDate || today() : '',
+    })).filter((p) => p.amount > 0);
+    d.orderText = formOrderText.slice(0, 5000);
+    if (d.payments.length) { const s = sumPays(d.payments); d.cash = s.cash; d.bank = s.bank; d.card = s.card; }
+    d.payStatus = d.payments.some((p) => !p.received) ? 'waiting' : 'paid';
+    if (d.payStatus === 'paid') d.payDue = '';
     // Запамʼятовуємо імʼя водія та номер авто — щоб рейс зберіг їх, навіть якщо їх видалять із довідника
     const drv = drivers.find((x) => x.id === d.driverId);
     const car = cars.find((x) => x.id === d.carId);
@@ -3214,6 +3404,12 @@ ${rows.length ? `<h2>Рейси</h2>${table([['Дати'], ['Авто'], ['Во�
     if (delPay) return deletePayout(delPay.dataset.delPayout);
     const mp = e.target.closest('[data-mark-paid]');
     if (mp) return markPaid(mp.dataset.markPaid);
+    const ma = e.target.closest('[data-mark-all]');
+    if (ma) return markAllPaid(ma.dataset.markAll);
+    const tg = e.target.closest('[data-toggle-pay]');
+    if (tg) { const [tid, pid] = tg.dataset.togglePay.split('|'); if (setPaid(tid, pid)) renderAll(); return; }
+    const pa = e.target.closest('[data-pay-all]');
+    if (pa) { if (setPaid(pa.dataset.payAll, '', true)) { renderAll(); toast('Усе позначено отриманим'); } return; }
     const sg = e.target.closest('[data-settle-go]');
     if (sg) { settleTab = sg.dataset.settleGo; renderSettle(); return; } // далі браузер перейде по href="#settle"
     const cs = e.target.closest('[data-cal-shift]');
