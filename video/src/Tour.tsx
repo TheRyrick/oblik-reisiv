@@ -51,6 +51,7 @@ export type Step = {
   tap?: boolean; // пульсуюче коло «натисни тут»
   then?: string; // після натискання показати другий кадр
   dur?: number;
+  voice?: string; // назва фрази озвучки (public/<folder>/voice/<voice>.mp3); без неї — s01, s02… за порядком
 };
 export type TourConfig = {
   folder: string;
@@ -64,7 +65,8 @@ export type TourConfig = {
 
 // Звук починається трохи після появи сцени; сцена триває, поки звучить фраза (+ пауза)
 const VOICE_START = 12;
-const voiceId = (i: number) => `s${String(i + 1).padStart(2, "0")}`;
+const voiceId = (g: TourConfig, i: number) =>
+  g.steps[i].voice ?? `s${String(i + 1).padStart(2, "0")}`;
 const fit = (g: TourConfig, id: string, base: number) => {
   const sec = g.voice[id] ?? 0;
   return sec > 0
@@ -74,7 +76,7 @@ const fit = (g: TourConfig, id: string, base: number) => {
 const introDur = (g: TourConfig) => fit(g, "intro", INTRO);
 const outroDur = (g: TourConfig) => fit(g, "outro", OUTRO);
 const stepDur = (g: TourConfig, i: number) =>
-  fit(g, voiceId(i), g.steps[i].dur ?? SCENE);
+  fit(g, voiceId(g, i), g.steps[i].dur ?? SCENE);
 
 export const durationOf = (g: TourConfig) =>
   introDur(g) +
@@ -541,7 +543,7 @@ export const TourVideo: React.FC<{ g: TourConfig }> = ({ g }) => {
         name={s.title}
         durationInFrames={stepDur(g, i)}
       >
-        <Voice g={g} id={voiceId(i)} />
+        <Voice g={g} id={voiceId(g, i)} />
         <AbsoluteFill>
           <Backdrop />
           <Browser screenH={screenH} left={left} top={BOX_TOP}>

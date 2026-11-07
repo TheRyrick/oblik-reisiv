@@ -5,6 +5,7 @@
  *
  *   node scripts/voice.mjs voices            — знайти українські голоси й записати проби в out/samples/
  *   node scripts/voice.mjs make <voice_id>   — озвучити весь текст із src/narration.json
+ *   node scripts/voice.mjs update            — лише нові й змінені фрази тим самим голосом (економить кредити)
  *
  * Результат: public/owner/voice/<id>.mp3 + voice.json (тривалість кожної фрази) — відео підлаштовується саме.
  * У тексті можна ставити теги настрою англійською в дужках: [friendly], [excited], [warmly]…
@@ -103,6 +104,37 @@ async function make(voiceId) {
   }
   fs.writeFileSync(path.join(OUT, "voice.json"), JSON.stringify(result, null, 2) + "\n");
   fs.writeFileSync(path.join(OUT, "voice-id.txt"), voiceId + "\n");
+  fs.writeFileSync(path.join(OUT, "narration-done.json"), JSON.stringify(lines, null, 2) + "\n");
+  console.log("Готово → " + OUT);
+}
+
+// Лише нові/змінені фрази: порівнюємо з narration-done.json (текст, який уже озвучено) — економить кредити
+async function update() {
+  const lines = JSON.parse(fs.readFileSync(path.join(ROOT, "src", "narration.json"), "utf8"));
+  const doneFile = path.join(OUT, "narration-done.json");
+  const done = fs.existsSync(doneFile) ? JSON.parse(fs.readFileSync(doneFile, "utf8")) : {};
+  const voiceFile = path.join(OUT, "voice.json");
+  const durs = fs.existsSync(voiceFile) ? JSON.parse(fs.readFileSync(voiceFile, "utf8")) : {};
+  const voiceId = fs.readFileSync(path.join(OUT, "voice-id.txt"), "utf8").trim();
+  const todo = Object.keys(lines).filter((id) => done[id] !== lines[id] || !fs.existsSync(path.join(OUT, id + ".mp3")));
+  const chars = todo.reduce((a, id) => a + lines[id].length, 0);
+  console.log(`Озвучую ${todo.length} фраз (~${chars} символів): ${todo.join(", ") || "нічого"}`);
+  const result = {};
+  for (const id of Object.keys(lines)) {
+    if (todo.includes(id)) {
+      const file = path.join(OUT, id + ".mp3");
+      await tts(voiceId, lines[id], file);
+      result[id] = seconds(file);
+      done[id] = lines[id];
+      fs.writeFileSync(doneFile, JSON.stringify(done, null, 2) + "\n");
+      console.log(`${id.padEnd(9)} ${result[id].toFixed(1)} с  ${lines[id].slice(0, 60)}`);
+    } else result[id] = durs[id];
+  }
+  // прибираємо фрази, яких більше немає в тексті
+  for (const f of fs.readdirSync(OUT)) if (/\.mp3$/.test(f) && !(f.slice(0, -4) in lines)) fs.rmSync(path.join(OUT, f));
+  for (const id of Object.keys(done)) if (!(id in lines)) delete done[id];
+  fs.writeFileSync(doneFile, JSON.stringify(done, null, 2) + "\n");
+  fs.writeFileSync(voiceFile, JSON.stringify(result, null, 2) + "\n");
   console.log("Готово → " + OUT);
 }
 
@@ -110,7 +142,8 @@ const [cmd, arg] = process.argv.slice(2);
 try {
   if (cmd === "voices") await voices();
   else if (cmd === "make") await make(arg);
-  else console.log("Команди: voices | make <voice_id>");
+  else if (cmd === "update") await update();
+  else console.log("Команди: voices | make <voice_id> | update");
 } catch (e) {
   console.error(e.message);
   process.exit(1);

@@ -1,7 +1,7 @@
 # Відео-навчалка для власника
 
-Горизонтальне відео 1920×1080 (~72 с) «Огляд сайту для власника», як на екрані компʼютера.
-Зроблене на [Remotion](https://remotion.dev). У кадрах — лише **тестові** дані (`tests/e2e/mock.js`),
+Горизонтальне відео 1920×1080 (~3,5 хв) «Огляд сайту для власника», як на екрані компʼютера.
+Зроблене на [Remotion](https://remotion.dev). У кадрах — лише **тестові** дані (`tools/video-data.js`),
 справжня база не використовується.
 
 ## Як оновити відео після змін на сайті
@@ -14,6 +14,7 @@ node tools/video-capture.js
 #    текст — у src/narration.json
 node scripts/voice.mjs voices          # проби українських голосів → out/samples/
 node scripts/voice.mjs make <voice_id> # озвучити все
+node scripts/voice.mjs update          # лише нові/змінені фрази (економить кредити)
 
 # 3) перегляд у браузері
 cd video && npm i && npm run dev

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /*
  * Кадри для відео-навчалки власника: node tools/video-capture.js
- * Запускає сайт локально з ТЕСТОВИМИ даними (tests/e2e/mock.js), відкриває Chrome без вікна
+ * Запускає сайт локально з ТЕСТОВИМИ даними (tools/video-data.js через tests/e2e/mock.js), відкриває Chrome без вікна
  * з екраном як у ноутбука, проходить тур «owner» і зберігає скрін кожного кроку
  * у video/public/owner/ + steps.json (заголовок кроку і де підсвічено).
  * Справжня база не використовується.
@@ -74,6 +74,8 @@ const server = http.createServer((req, res) => {
   let code = 0;
   try {
     await send('Runtime.enable'); await send('Page.enable');
+    // насичені тестові дані для відео (замовники, маршрути, м³) — підставляються до завантаження сайту
+    await send('Page.addScriptToEvaluateOnNewDocument', { source: fs.readFileSync(path.join(__dirname, 'video-data.js'), 'utf8') });
     await send('Emulation.setDeviceMetricsOverride', { width: W, height: H, deviceScaleFactor: DPR, mobile: false });
     await send('Page.navigate', { url: `http://127.0.0.1:${PORT}/` });
     for (let i = 0; i < 80; i++) { try { if (await ev('return !!window.__ready')) break; } catch (e) { /* вантажиться */ } await sleep(150); }
@@ -101,8 +103,38 @@ const server = http.createServer((req, res) => {
     const netRect = await rectOf('#kpiMain [data-kpi="net"]');
     await ev(`document.querySelector('#kpiMain [data-kpi="net"]').click()`); await sleep(900);
     await shot('kpi-explain.png');
+    await ev(`document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }))`); await sleep(500);
+    const extra = {};
+    // Картка авто: марка зі значком, м³ і вантажопідйомність
+    await ev(`document.querySelector('#refsBtn').click()`); await sleep(500);
+    await ev(`document.querySelector('[data-edit-car="c1"]').click()`); await sleep(500);
+    await shot('cars.png');
+    // наближаємо на номер, марку зі значком, м³ і кг
+    extra.cars = await ev(`const a = document.querySelector('#carForm [name=plate]').getBoundingClientRect(), b = document.querySelector('#carForm [name=capacityKg]').getBoundingClientRect();
+      return { x: a.left / ${W}, y: a.top / ${H}, w: (b.right - a.left) / ${W}, h: (b.bottom - a.top) / ${H} };`);
+    await ev(`document.querySelector('#refsModal [data-close]').click()`); await sleep(500);
+    // Калькулятор «Чи брати вантаж?»: три замовлення в MAN (86 м³ / 20 т)
+    await ev(`location.hash = '#analytics'`); await sleep(700);
+    await ev(`const f = document.querySelector('#quoteForm');
+      const set = (el, v) => { el.value = v; el.dispatchEvent(new Event('input', { bubbles: true })); };
+      set(f.elements.carId, 'c1');
+      const orders = [['18000', 'bank', '30', '6000'], ['12000', 'cash', '25', '4500'], ['8000', 'bank', '18', '3000']];
+      for (let i = 0; i < orders.length; i++) {
+        if (i) document.querySelector('#quoteAddOrder').click();
+        const row = document.querySelectorAll('#quoteOrders .q-order')[i];
+        const [p, pay, v, kg] = orders[i];
+        set(row.querySelector('[data-q="price"]'), p); set(row.querySelector('[data-q="pay"]'), pay);
+        set(row.querySelector('[data-q="volume"]'), v); set(row.querySelector('[data-q="kg"]'), kg);
+      }
+      set(f.elements.km, '520'); set(f.elements.emptyKm, '60');
+      document.activeElement.blur(); window.scrollTo(0, 0);`); await sleep(700);
+    await shot('quote.png');
+    extra.quote = await rectOf('#quoteResult');
+    // Замовники, міста, найкращі рейси
+    await ev(`window.scrollTo(0, document.querySelector('#analyticsBody').getBoundingClientRect().top + scrollY - 90)`); await sleep(600);
+    await shot('insights.png');
 
-    fs.writeFileSync(path.join(OUT, 'steps.json'), JSON.stringify({ size: { w: W * DPR, h: H * DPR }, steps, kpi: { file: 'kpi-before.png', rect: netRect } }, null, 2));
+    fs.writeFileSync(path.join(OUT, 'steps.json'), JSON.stringify({ size: { w: W * DPR, h: H * DPR }, steps, kpi: { file: 'kpi-before.png', rect: netRect }, extra }, null, 2));
     console.log(`Готово: ${steps.length} кроків → ${OUT}`);
     console.log(steps.map((s) => `${s.file}  ${s.title}  ${s.rect ? 'підсвічено' : '—'}`).join('\n'));
   } catch (e) {
