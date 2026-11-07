@@ -335,6 +335,9 @@
         </div>
       </div>`;
     document.body.appendChild(el);
+    // Довідку закривають різними шляхами (хрестик, фон, Esc, кнопка туру) — відео зупиняємо в будь-якому разі
+    new MutationObserver(() => { if (el.classList.contains('hidden')) stopVideo(); })
+      .observe(el, { attributes: true, attributeFilter: ['class'] });
     el.addEventListener('click', (e) => {
       const r = e.target.closest('[data-help-role]');
       if (r) { helpRole = r.dataset.helpRole; renderHelp(); return; }

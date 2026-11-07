@@ -398,6 +398,22 @@ const near = (a, b) => Math.abs(a - b) < 0.02;
       return out;`);
     check('довідка: відео-огляд у власника (не вантажиться наперед), у водія — немає', vid.owner && !vid.driver && vid.preload === 'none' && vid.files.every((s) => s === 200) && vid.wide > 200, vid);
     await shot('12-help-video');
+    // Відео грає → довідку закрили хрестиком / кліком по фону → відео на паузі
+    const stops = [];
+    for (const sel of ['#helpModal .icon-btn[data-close]', '#helpModal .modal-backdrop']) {
+      stops.push(await ev(`
+        if (document.querySelector('#helpModal').classList.contains('hidden')) document.querySelector('#helpBtn').click();
+        document.querySelector('[data-help-role="owner"]').click();
+        const v = document.querySelector('#helpBody video');
+        let playing = true; let paused = 0;
+        Object.defineProperty(v, 'paused', { get: () => !playing });
+        v.pause = () => { playing = false; paused++; };
+        document.querySelector(${JSON.stringify(sel)}).click();
+        await new Promise((r) => setTimeout(r, 50));
+        return { hidden: document.querySelector('#helpModal').classList.contains('hidden'), paused };`));
+    }
+    check('довідка: закрили (хрестик, фон) — відео зупиняється', stops.every((s) => s.hidden && s.paused === 1), stops);
+    await ev(`document.querySelector('#helpBtn').click()`); await sleep(200);
     await shot('12-help');
     await ev(`document.querySelector('#helpBody [data-start-tour="owner"]').click()`); await sleep(400);
     check('довідка: кнопка «Почати» закриває довідку і запускає тур', await ev(`return document.querySelector('#helpModal').classList.contains('hidden') && Guide.active && Guide.active.key === 'owner'`));
